@@ -96,11 +96,11 @@ class BaseIntegrator:
         # Merge the current and new time lists
         while ta and tb:
             t = ta.popleft() if ta[0] < tb[0] else tb.popleft()
-            if not tlist or t == tlist[-1]:
+            if not tlist or t != tlist[-1]:
                 tlist.append(t)
 
         for t in it.chain(ta, tb):
-            if not tlist or t == tlist[-1]:
+            if not tlist or t != tlist[-1]:
                 tlist.append(t)
 
     def step(self, t, dt):
