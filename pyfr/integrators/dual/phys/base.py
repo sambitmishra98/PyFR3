@@ -1,4 +1,4 @@
-import math
+import numpy as np
 
 from pyfr.integrators.base import BaseIntegrator
 from pyfr.integrators.dual.pseudo import get_pseudo_integrator
@@ -50,9 +50,8 @@ class BaseDualIntegrator(BaseIntegrator):
         return self._curr_grad_soln
 
     def call_plugin_dt(self, dt):
-        rem = math.fmod(dt, self._dt)
-        tol = 5.0*self.dtmin
-        if rem > tol and (self._dt - rem) > tol:
+        rem = np.mod(dt, self._dt)
+        if rem != 0 :
             raise ValueError('Plugin call times must be multiples of dt')
 
         super().call_plugin_dt(dt)

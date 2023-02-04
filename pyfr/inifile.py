@@ -1,5 +1,6 @@
 from ast import literal_eval
 from configparser import ConfigParser, NoSectionError, NoOptionError
+from decimal import Decimal
 import io
 import os
 import re
@@ -101,6 +102,9 @@ class Inifile:
 
     def getint(self, section, option, default=_sentinel):
         return int(self.get(section, option, default))
+
+    def getdecimal(self, section, option, default=_sentinel):
+        return Decimal(self.get(section, option, default))
 
     def getliteral(self, section, option, default=_sentinel):
         return literal_eval(self.get(section, option, default))

@@ -1,3 +1,4 @@
+from decimal import Decimal
 import math
 
 import numpy as np
@@ -96,7 +97,7 @@ class StdPIController(BaseStdController):
         sect = 'solver-time-integrator'
 
         # Maximum time step
-        self.dtmax = self.cfg.getfloat(sect, 'dt-max', 1e2)
+        self.dtmax = self.cfg.getdecimal(sect, 'dt-max', 1e2)
 
         # Error tolerances
         self._atol = self.cfg.getfloat(sect, 'atol')
@@ -191,7 +192,7 @@ class StdPIController(BaseStdController):
             fac = min(maxf, max(minf, saff*fac))
 
             # Compute the size of the next step
-            self._dt = fac*dt
+            self._dt = Decimal(fac)*dt
 
             # Decide if to accept or reject the step
             if err < 1.0:

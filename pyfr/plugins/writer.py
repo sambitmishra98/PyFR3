@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root
 from pyfr.plugins.base import BasePlugin, PostactionMixin, RegionMixin
@@ -20,7 +22,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, BasePlugin):
         self._writer = NativeWriter(intg, basedir, basename, 'soln')
 
         # Output time step and last output time
-        self.dt_out = self.cfg.getfloat(cfgsect, 'dt-out')
+        self.dt_out = self.cfg.getdecimal(cfgsect, 'dt-out')
         self.tout_last = intg.tcurr
 
         # Output field names
@@ -38,7 +40,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, BasePlugin):
             self.tout_last -= self.dt_out
 
     def __call__(self, intg):
-        if intg.tcurr - self.tout_last < self.dt_out - self.tol:
+        if intg.tcurr - self.tout_last < self.dt_out:
             return
 
         comm, rank, root = get_comm_rank_root()

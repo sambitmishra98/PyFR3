@@ -58,8 +58,8 @@ class TavgPlugin(PostactionMixin, RegionMixin, BasePlugin):
         self._init_gradients()
 
         # Time averaging parameters
-        self.tstart = self.cfg.getfloat(cfgsect, 'tstart', 0.0)
-        self.dtout = self.cfg.getfloat(cfgsect, 'dt-out')
+        self.tstart = self.cfg.getdecimal(cfgsect, 'tstart', 0.0)
+        self.dtout = self.cfg.getdecimal(cfgsect, 'dt-out')
         self.nsteps = self.cfg.getint(cfgsect, 'nsteps')
 
         # Register our output times with the integrator
@@ -202,8 +202,8 @@ class TavgPlugin(PostactionMixin, RegionMixin, BasePlugin):
         prevex, vaccex, accex = self.prevex, self.vaccex, self.accex
 
         # Weights for online variance and average
-        Wmp1mpn = intg.tcurr - self.prevt
-        W1mpn = intg.tcurr - self.tstart_acc
+        Wmp1mpn = float(intg.tcurr - self.prevt)
+        W1mpn = float(intg.tcurr - self.tstart_acc)
         Wp = 2*(W1mpn - Wmp1mpn)*W1mpn
 
         # Iterate over each element type
@@ -265,7 +265,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, BasePlugin):
         std_max_a, std_sum_a = std_max[:nacc], std_sum[:nacc]
         std_max_f, std_sum_f = std_max[nacc:], std_sum[nacc:]
 
-        wts = 2*(intg.tcurr - self.tstart_acc)
+        wts = float(2*(intg.tcurr - self.tstart_acc))
 
         # Normalise the accumulated expressions
         tavg.append([a / wts for a in accex])
@@ -327,7 +327,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, BasePlugin):
             self._started = True
 
         # See if we are due to write and/or accumulate this step
-        dowrite = intg.tcurr - self.tout_last >= self.dtout - self.tol
+        dowrite = intg.tcurr - self.tout_last >= self.dtout
         doaccum = intg.nacptsteps % self.nsteps == 0
 
         if dowrite or doaccum:

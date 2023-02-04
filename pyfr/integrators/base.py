@@ -23,13 +23,13 @@ class BaseIntegrator:
                          if f.startswith('config-')}
 
         # Start time
-        self.tstart = Decimal(cfg.get('solver-time-integrator', 'tstart', 0.0))
-        self.tend = Decimal(cfg.get('solver-time-integrator', 'tend'))
+        self.tstart = cfg.getdecimal('solver-time-integrator', 'tstart', 0.0)
+        self.tend = cfg.getdecimal('solver-time-integrator', 'tend')
 
         # Current time; defaults to tstart unless restarting
         if self.isrestart:
             stats = Inifile(initsoln['stats'])
-            self.tcurr = Decimal(stats.get('solver-time-integrator', 'tcurr'))
+            self.tcurr = stats.getdecimal('solver-time-integrator', 'tcurr')
         else:
             self.tcurr = self.tstart
 
@@ -42,8 +42,8 @@ class BaseIntegrator:
         self.nacptchain = 0
 
         # Current and minimum time steps
-        self._dt = cfg.getfloat('solver-time-integrator', 'dt')
-        self.dtmin = cfg.getfloat('solver-time-integrator', 'dt-min', 1e-12)
+        self._dt = cfg.getdecimal('solver-time-integrator', 'dt')
+        self.dtmin = cfg.getdecimal('solver-time-integrator', 'dt-min', 1e-12)
 
         # Extract the UUID of the mesh (to be saved with solutions)
         self.mesh_uuid = mesh['mesh_uuid']
@@ -96,11 +96,11 @@ class BaseIntegrator:
         # Merge the current and new time lists
         while ta and tb:
             t = ta.popleft() if ta[0] < tb[0] else tb.popleft()
-            if not tlist or t - tlist[-1] > self.dtmin:
+            if not tlist or t == tlist[-1]:
                 tlist.append(t)
 
         for t in it.chain(ta, tb):
-            if not tlist or t - tlist[-1] > self.dtmin:
+            if not tlist or t == tlist[-1]:
                 tlist.append(t)
 
     def step(self, t, dt):
