@@ -49,13 +49,6 @@ class BaseDualIntegrator(BaseIntegrator):
 
         return self._curr_grad_soln
 
-    def call_plugin_dt(self, dt):
-        rem = np.mod(dt, self._dt)
-        if rem != 0 :
-            raise ValueError('Plugin call times must be multiples of dt')
-
-        super().call_plugin_dt(dt)
-
     def collect_stats(self, stats):
         super().collect_stats(stats)
 

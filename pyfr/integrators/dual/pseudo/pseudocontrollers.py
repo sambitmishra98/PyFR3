@@ -103,23 +103,27 @@ class DualPIPseudoController(BaseDualPseudoController):
         tplargs['maxf'] = self.cfg.getfloat(sect, 'max-fact', 1.01)
         tplargs['minf'] = self.cfg.getfloat(sect, 'min-fact', 0.98)
         tplargs['saff'] = self.cfg.getfloat(sect, 'safety-fact', 0.8)
-        tplargs['dtau_maxf'] = self.cfg.getfloat(sect, 'pseudo-dt-max-mult',
-                                                 3.0)
+        dtau_maxf = self.cfg.getfloat(sect, 'pseudo-dt-max-mult', 3.0)
+        dtau_minf = self.cfg.getfloat(sect, 'pseudo-dt-max-mult', 10.0)
 
         if not tplargs['minf'] < 1 <= tplargs['maxf']:
             raise ValueError('Invalid pseudo max-fact, min-fact')
 
-        if tplargs['dtau_maxf'] < 1:
+        if dtau_maxf < 1:
             raise ValueError('Invalid pseudo-dt-max-mult')
+        if dtau_minf < 1:
+            raise ValueError('Invalid pseudo-dt-min-mult')
 
         # Limits for the local pseudo-time-step size
-        tplargs['dtau_min'] = self._dtau
-        tplargs['dtau_max'] = tplargs['dtau_maxf'] * self._dtau
+        self._dtau_min = self._dtau / dtau_minf
+        self._dtau_max = self._dtau * dtau_maxf
 
         # Register a kernel to compute local error
         self.backend.pointwise.register(
             'pyfr.integrators.dual.pseudo.kernels.localerrest'
         )
+
+        self.ele_scal_upts_locs = []
 
         for ele, shape, dtaumat in zip(self.system.ele_map.values(),
                                        self.system.ele_shapes, self.dtau_upts):
@@ -129,6 +133,7 @@ class DualPIPseudoController(BaseDualPseudoController):
 
             # Append the error kernels to the list
             for i, err in enumerate(ele.scal_upts):
+                self.ele_scal_upts_locs.append(i)
                 self.pintgkernels['localerrest', i].append(
                     self.backend.kernel(
                         'localerrest', tplargs=tplargs,
@@ -137,7 +142,20 @@ class DualPIPseudoController(BaseDualPseudoController):
                     )
                 )
 
+            for i in self.ele_scal_upts_locs:
+                for k in self.pintgkernels['localerrest', i]:
+                    k.bind(dtau_min = self._dtau_min, dtau_max = self._dtau_max)
+
         self.backend.commit()
+
+    def dtau_limits_multiplied(self, multiplier):
+        y = float(multiplier)
+        self._dtau_min *= y
+        self._dtau_max *= y
+        for i in self.ele_scal_upts_locs:
+            for k in self.pintgkernels['localerrest', i]:
+                k.bind(dtau_min = self._dtau_min, dtau_max = self._dtau_max)
+        print("dtau_min = ", self._dtau_min, "dtau_max = ", self._dtau_max)
 
     def localerrest(self, errbank):
         self.backend.run_kernels(self.pintgkernels['localerrest', errbank])
