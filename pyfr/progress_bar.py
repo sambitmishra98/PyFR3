@@ -24,9 +24,9 @@ class ProgressBar:
     _mindelta = 0.1
 
     def __init__(self, start, curr, end, dps=2):
-        self.ststrt = start
-        self.strtrt = curr
-        self.stend = end
+        self.ststrt = float(start)
+        self.strtrt = float(curr)
+        self.stend = float(end)
         self.dps = dps
 
         self._wstart = time.time()
@@ -38,7 +38,7 @@ class ProgressBar:
         self.advance_to(curr)
 
     def advance_to(self, t):
-        self.stcurr = min(t, self.stend)
+        self.stcurr = min(float(t), self.stend)
         self.stelap = self.stcurr - self.strtrt
 
         self._render()

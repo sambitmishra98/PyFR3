@@ -69,7 +69,7 @@ class DualNonePseudoController(BaseDualPseudoController):
 
         for i in range(self.maxniters):
             # Take the step
-            self._idxcurr, self._idxprev = self.step(self.tcurr)
+            self._idxcurr, self._idxprev = self.step(float(self.tcurr))
 
             # Convergence monitoring
             if self.convmon(i, self.minniters, self._dtau):
@@ -147,7 +147,7 @@ class DualPIPseudoController(BaseDualPseudoController):
 
         for i in range(self.maxniters):
             # Take the step
-            self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
+            self._idxcurr, self._idxprev, self._idxerr = self.step(float(self.tcurr))
             self.localerrest(self._idxerr)
 
             if self.convmon(i, self.minniters):

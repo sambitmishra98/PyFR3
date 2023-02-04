@@ -80,7 +80,7 @@ class StdNoneController(BaseStdController):
             dt = max(min(t - self.tcurr, self._dt), self.dtmin)
 
             # Take the step
-            idxcurr = self.step(self.tcurr, dt)
+            idxcurr = self.step(float(self.tcurr), dt)
 
             # We are not adaptive, so accept every step
             self._accept_step(dt, idxcurr)
@@ -181,7 +181,7 @@ class StdPIController(BaseStdController):
             dt = max(min(t - self.tcurr, self._dt, self.dtmax), self.dtmin)
 
             # Take the step
-            idxcurr, idxprev, idxerr = self.step(self.tcurr, dt)
+            idxcurr, idxprev, idxerr = self.step(float(self.tcurr), dt)
 
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)

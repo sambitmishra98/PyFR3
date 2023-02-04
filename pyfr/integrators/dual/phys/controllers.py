@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from pyfr.integrators.dual.phys.base import BaseDualIntegrator
 
 
@@ -14,7 +16,9 @@ class BaseDualController(BaseDualIntegrator):
                 csh(self)
 
     def _accept_step(self, idxcurr):
-        self.tcurr += self._dt
+        self.tcurr = self.tcurr + Decimal(str(self._dt))
+        #self.tcurr += self._dt
+
         self.nacptsteps += 1
         self.nacptchain += 1
 
@@ -48,7 +52,7 @@ class DualNoneController(BaseDualController):
 
         while self.tcurr < t:
             # Take the physical step
-            self.step(self.tcurr, self._dt)
+            self.step(float(self.tcurr), self._dt)
 
             # We are not adaptive, so accept every step
             self._accept_step(self.pseudointegrator._idxcurr)

@@ -3,6 +3,7 @@ import itertools as it
 import re
 import sys
 import time
+from decimal import Decimal
 
 import numpy as np
 
@@ -22,13 +23,13 @@ class BaseIntegrator:
                          if f.startswith('config-')}
 
         # Start time
-        self.tstart = cfg.getfloat('solver-time-integrator', 'tstart', 0.0)
-        self.tend = cfg.getfloat('solver-time-integrator', 'tend')
+        self.tstart = Decimal(cfg.get('solver-time-integrator', 'tstart', 0.0))
+        self.tend = Decimal(cfg.get('solver-time-integrator', 'tend'))
 
         # Current time; defaults to tstart unless restarting
         if self.isrestart:
             stats = Inifile(initsoln['stats'])
-            self.tcurr = stats.getfloat('solver-time-integrator', 'tcurr')
+            self.tcurr = Decimal(stats.get('solver-time-integrator', 'tcurr'))
         else:
             self.tcurr = self.tstart
 
