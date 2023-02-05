@@ -182,7 +182,7 @@ class StdPIController(BaseStdController):
             dt = max(min(t - self.tcurr, self._dt, self.dtmax), self.dtmin)
 
             # Take the step
-            idxcurr, idxprev, idxerr = self.step(float(self.tcurr), dt)
+            idxcurr, idxprev, idxerr = self.step(float(self.tcurr), float(dt))
 
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)

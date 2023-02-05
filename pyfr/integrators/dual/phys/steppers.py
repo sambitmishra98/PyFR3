@@ -25,7 +25,7 @@ class BaseDIRKStepper(BaseDualStepper):
     def step(self, t, dt):
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
             self.pseudointegrator.init_stage(s, sc, dt)
-            self.pseudointegrator.pseudo_advance(float(t) + float(dt)*tc)
+            self.pseudointegrator.pseudo_advance(t + dt*tc)
 
         self._finalize_step(dt)
 

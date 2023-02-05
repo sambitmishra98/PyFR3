@@ -59,6 +59,18 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostepinfo(self, niters, resid):
         self.pseudostepinfo.append((self.ntotiters, niters, resid))
 
+    @property
+    def dt(self):
+        return self._dt
+
+    @dt.setter
+    def dt(self, y):
+        self.dtau_mats_multiplied(y/self._dt)
+
+        if self.cfg.get('solver-time-integrator', 'pseudo-controller') == 'local-pi':        
+            self.dtau_limits_multiplied(y/self._dt)
+
+        self._dt = y
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'

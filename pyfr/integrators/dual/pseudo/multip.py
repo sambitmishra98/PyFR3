@@ -286,7 +286,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
     
     @dt.setter
     def dt(self, y):
-
         for l in self.levels:
             self.pintgs[l].dtau_mats_multiplied(y/self.pintg._dt)
 
