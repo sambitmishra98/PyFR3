@@ -30,7 +30,7 @@ below to setup the OpenMP backend on macOS:
 
 3. Download and install libxsmm and set the library path::
 
-        git clone git@github.com:libxsmm/libxsmm.git
+        git clone https://github.com/libxsmm/libxsmm.git
         cd libxsmm
         make -j4 STATIC=0 BLAS=0
         export PYFR_XSMM_LIBRARY_PATH=`pwd`/lib/libxsmm.dylib
@@ -68,7 +68,7 @@ Follow the steps below to setup the OpenMP backend on Ubuntu:
 
 3. Download and install libxsmm and set the library path::
 
-        git clone git@github.com:libxsmm/libxsmm.git
+        git clone https://github.com/libxsmm/libxsmm.git
         cd libxsmm
         make -j4 STATIC=0 BLAS=0
         export PYFR_XSMM_LIBRARY_PATH=`pwd`/lib/libxsmm.so
@@ -104,7 +104,7 @@ Python dependencies.
 Dependencies
 ------------
 
-PyFR |release| has a hard dependency on Python 3.9+ and the following
+PyFR |release| has a hard dependency on Python 3.10+ and the following
 Python packages:
 
 1. `gimmik <https://github.com/PyFR/GiMMiK>`_ >= 3.0
@@ -147,11 +147,11 @@ AMD, Intel, and NVIDIA. The backend requires:
 1. OpenCL >= 2.1
 2. Optionally `CLBlast <https://github.com/CNugteren/CLBlast>`_
 
-Note that when running on NVIDIA GPUs the OpenCL backend terminate with
-a segmentation fault after the simulation has finished.  This is due
-to a long-standing bug in how the NVIDIA OpenCL implementation handles
-sub-buffers.  As it occurs during the termination phase—after all data
-has been written out to disk—the issue does *not* impact the
+Note that when running on NVIDIA GPUs the OpenCL backend may terminate
+with a segmentation fault after the simulation has finished.  This is
+due to a long-standing bug in how the NVIDIA OpenCL implementation
+handles sub-buffers.  As it occurs during the termination phase—after
+all data has been written out to disk—the issue does *not* impact the
 functionality or correctness of PyFR.
 
 .. _install openmp backend:
@@ -179,7 +179,7 @@ To partition meshes for running in parallel it is also necessary to
 have one of the following partitioners installed:
 
 1. `METIS <http://glaros.dtc.umn.edu/gkhome/views/metis>`_ >= 5.0
-2. `SCOTCH <http://www.labri.fr/perso/pelegrin/scotch/>`_ >= 6.0
+2. `SCOTCH <http://www.labri.fr/perso/pelegrin/scotch/>`_ >= 7.0
 
 In order for PyFR to find these libraries they must be located in a
 directory which is on the library search path.  Alternatively, the

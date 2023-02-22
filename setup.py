@@ -31,10 +31,10 @@ modules = [
     'pyfr.integrators.dual.pseudo.kernels',
     'pyfr.integrators.std',
     'pyfr.integrators.std.kernels',
+    'pyfr.partitioners',
     'pyfr.plugins',
     'pyfr.quadrules',
     'pyfr.readers',
-    'pyfr.partitioners',
     'pyfr.solvers',
     'pyfr.solvers.aceuler',
     'pyfr.solvers.aceuler.kernels',
@@ -116,7 +116,6 @@ console_scripts = [
 classifiers = [
     'License :: OSI Approved :: BSD License',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Topic :: Scientific/Engineering'
 ]
@@ -141,6 +140,6 @@ setup(name='pyfr',
       packages=['pyfr'] + modules + tests,
       package_data=package_data,
       entry_points={'console_scripts': console_scripts},
-      python_requires='>=3.9',
+      python_requires='>=3.10',
       install_requires=install_requires,
       classifiers=classifiers)
