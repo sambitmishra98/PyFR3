@@ -1,10 +1,11 @@
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root
-from pyfr.plugins.base import BasePlugin, PostactionMixin, RegionMixin
+from pyfr.plugins.base import BaseSolnPlugin, PostactionMixin, RegionMixin
 from pyfr.writers.native import NativeWriter
 
-class PseudodtWriterPlugin(PostactionMixin, RegionMixin, BasePlugin):
-    name = 'pseudodt_writer'
+
+class PseudodtWriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
+    name = 'pseudotimewriter'
     systems = ['*']
     formulations = ['dual']
 
@@ -40,7 +41,7 @@ class PseudodtWriterPlugin(PostactionMixin, RegionMixin, BasePlugin):
         if intg.tcurr - self.tout_last < self.dt_out - self.tol:
             return
 
-        _, rank, root = get_comm_rank_root()
+        comm, rank, root = get_comm_rank_root()
 
         stats = Inifile()
         stats.set('data', 'fields', ','.join(self.fields))
@@ -56,7 +57,7 @@ class PseudodtWriterPlugin(PostactionMixin, RegionMixin, BasePlugin):
             metadata = None
 
         # Fetch data from other plugins and add it to metadata with ad-hoc keys
-        for csh in intg.completed_step_handlers:
+        for csh in intg.plugins:
             try:
                 prefix = intg.get_plugin_data_prefix(csh.name, csh.suffix)
                 pdata = csh.serialise(intg)
@@ -66,11 +67,13 @@ class PseudodtWriterPlugin(PostactionMixin, RegionMixin, BasePlugin):
             if rank == root:
                 metadata |= {f'{prefix}/{k}': v for k, v in pdata.items()}
 
+        # Fetch and (if necessary) subset the solution
         data = dict(self._ele_region_data)
         for idx, etype, rgn in self._ele_regions:
             vals = intg.pseudointegrator.pintg.dtau_mats[idx]
             data[etype] = vals[..., rgn].astype(self.fpdtype)
 
+        # Write out the file
         solnfname = self._writer.write(data, intg.tcurr, metadata)
 
         # If a post-action has been registered then invoke it
