@@ -1,16 +1,18 @@
-from pyfr.mpiutil import get_comm_rank_root, mpi
-from pyfr.plugins.base import BasePlugin, init_csv
-
 import numpy as np
 
-class PseudodtStatsPlugin(BasePlugin):
-    name = 'pseudodt_stats'
+from pyfr.mpiutil import get_comm_rank_root, mpi
+from pyfr.plugins.base import BaseSolnPlugin, init_csv
+
+
+class PseudodtStatsPlugin(BaseSolnPlugin):
+    name = 'pseudodt'
     systems = ['*']
     formulations = ['dual']
 
-    def __init__(self, intg, cfgsect:str, prefix):
+    def __init__(self, intg, cfgsect, prefix):
         super().__init__(intg, cfgsect, prefix)
 
+        self.flushsteps = self.cfg.getint(self.cfgsect, 'flushsteps', 500)
 
         self.stats = []
 
@@ -33,7 +35,7 @@ class PseudodtStatsPlugin(BasePlugin):
                                            for p in self.fvars},
                         }
 
-        self.abstraction = self.cfg.getint(self.cfgsect, 'abstraction', 0)
+        self.abstraction = self.cfg.getint(self.cfgsect, 'abstraction')
 
         if self.abstraction > 2:
             raise ValueError('abstraction > 2 has not been implemented yet')
@@ -58,7 +60,6 @@ class PseudodtStatsPlugin(BasePlugin):
 
         # The root rank needs to open the output file
         if (self.rank == self.root) and (self.abstraction != 0):
-            self.flushsteps = self.cfg.getint(self.cfgsect, 'flushsteps', 500)
             self.outf = init_csv(self.cfg, cfgsect, csv_header)
         else:
             self.outf = None

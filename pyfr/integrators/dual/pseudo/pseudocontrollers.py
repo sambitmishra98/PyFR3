@@ -108,7 +108,7 @@ class DualPIPseudoController(BaseDualPseudoController):
         tplargs['saff'] = self.cfg.getfloat(sect, 'safety-fact', 0.8)
 
         tplargs['dtau_minf'] = self.cfg.getfloat(sect, 'pseudo-dt-min-mult',
-                                                 1)
+                                                 0.1)
         tplargs['dtau_maxf'] = self.cfg.getfloat(sect, 'pseudo-dt-max-mult',
                                                  3.0)
 
