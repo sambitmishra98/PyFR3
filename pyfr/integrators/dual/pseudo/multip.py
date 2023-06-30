@@ -112,6 +112,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         # Get the highest p system from plugins
         self.system = self.pintgs[self._order].system
 
+        # Store residuals after smoothing + restriction/prolongation is complete
+        self.multip_residuals = []
+
         # Get the convergence monitoring method
         self.mg_convmon = cc.convmon
 
@@ -288,6 +291,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.tcurr = tcurr
 
         for i in range(self._maxniters):
+            stages_pseudostepinfo = []
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
@@ -296,6 +300,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
                 self.pintg.pseudo_advance(tcurr)
 
+                stages_pseudostepinfo.append((l , *self.pintg._resid(self.pintg._idxcurr, self.pintg._idxprev, 1)))
+
+                # TODO: Create a function that isolates the modes of the residual
+                #       Get the residual for each mode
+
                 if m is not None and l > m:
                     self.restrict(l, m)
                 elif m is not None and l < m:
@@ -303,6 +312,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1
+
+            # Store residual information after smoothing
+            self.multip_residuals.append((i, *stages_pseudostepinfo))
 
             # Convergence monitoring
             if self.mg_convmon(self.pintg, i, self._minniters):

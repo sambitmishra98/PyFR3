@@ -120,9 +120,6 @@ class DualPIPseudoController(BaseDualPseudoController):
         if not tplargs['minf'] < 1 <= tplargs['maxf']:
             raise ValueError('Invalid pseudo max-fact, min-fact')
 
-        if not tplargs['dtau_minf'] < 1 < tplargs['dtau_maxf']:
-            raise ValueError('Invalid pseudo-dt-min-mult, pseudo-dt-max-mult')
-
         # Limits for the local pseudo-time-step size
         tplargs['dtau_min'] = tplargs['dtau_minf'] * self._dtau
         tplargs['dtau_max'] = tplargs['dtau_maxf'] * self._dtau
