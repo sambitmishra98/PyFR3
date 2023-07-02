@@ -63,12 +63,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
+            bases = [cc, pc]
             if l == order:
-                bases = [cc, pc]
                 mcfg = cfg
             else:
-                bases = [cc_none, pc]
-
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
                 mcfg.set(sect, 'pseudo-dt', dtau*self.dtauf**(order - l))
@@ -301,9 +299,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 self.pintg.pseudo_advance(tcurr)
 
                 stages_pseudostepinfo.append((l , *self.pintg._resid(self.pintg._idxcurr, self.pintg._idxprev, 1)))
-
-                # TODO: Create a function that isolates the modes of the residual
-                #       Get the residual for each mode
 
                 if m is not None and l > m:
                     self.restrict(l, m)
