@@ -110,9 +110,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         # Get the highest p system from plugins
         self.system = self.pintgs[self._order].system
 
-        # Store residuals after smoothing + restriction/prolongation is complete
-        self.multip_residuals = []
-
         # Get the convergence monitoring method
         self.mg_convmon = cc.convmon
 
@@ -135,9 +132,17 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
     def pseudostepinfo(self):
         return self.pintg.pseudostepinfo
 
+    @property
+    def pseudostep_multipinfo(self):
+        return self.pintg.pseudostep_multipinfo
+
     @pseudostepinfo.setter
     def pseudostepinfo(self, y):
         self.pintg.pseudostepinfo = y
+
+    @pseudostep_multipinfo.setter
+    def pseudostep_multipinfo(self, y):
+        self.pintg.pseudostep_multipinfo = y
 
     @property
     def _regidx(self):
@@ -289,7 +294,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.tcurr = tcurr
 
         for i in range(self._maxniters):
-            stages_pseudostepinfo = []
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
@@ -298,7 +302,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
                 self.pintg.pseudo_advance(tcurr)
 
-                stages_pseudostepinfo.append((l , *self.pintg._resid(self.pintg._idxcurr, self.pintg._idxprev, 1)))
+                if self.level is not self._order:
+                    self.pintgs[self._order].pseudostep_multipinfo.append(*self.pintg.pseudostep_multipinfo)
+                    self.pintg.pseudostep_multipinfo = []
 
                 if m is not None and l > m:
                     self.restrict(l, m)
@@ -308,12 +314,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1
 
-            # Store residual information after smoothing
-            self.multip_residuals.append((i, *stages_pseudostepinfo))
-
             # Convergence monitoring
             if self.mg_convmon(self.pintg, i, self._minniters):
                 break
+
+        print(self.pintgs[self._order].pseudostep_multipinfo)
 
     def collect_stats(self, stats):
         # Collect the stats for each level

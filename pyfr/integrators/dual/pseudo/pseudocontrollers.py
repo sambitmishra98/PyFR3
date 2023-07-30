@@ -17,6 +17,9 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
         # Stats on the most recent step
         self.pseudostepinfo = []
 
+        # Stats on every multip level for the most recent step
+        self.pseudostep_multipinfo = []
+
     def convmon(self, i, minniters, dt_fac=1):
         if i >= minniters - 1:
             # Compute the normalised residual
@@ -64,6 +67,9 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
 
     def _update_pseudostepinfo(self, niters, resid):
         self.pseudostepinfo.append((self.ntotiters, niters, resid))
+
+    def _update_pseudostep_multipinfo(self, order, niters, resids):
+        self.pseudostep_multipinfo.append((self.ntotiters, order, niters, resids))
 
 
 class DualNonePseudoController(BaseDualPseudoController):
@@ -210,11 +216,17 @@ class DualPIPseudoController(BaseDualPseudoController):
         self.isolateall(self._idxprev, self._prev_modes_regidx)
         self.isolateall(self._idxcurr, self._curr_modes_regidx)
 
-        print(f"{tcurr = }, {i = }, {order = } \t", end='')
-        p_res_rms = 0
-        for i in range(order+1):
-            p_res = self._resid(self._curr_modes_regidx[i], self._prev_modes_regidx[i], 1)[1]
-            print(f"L{i} = {p_res} \t", end='')
-            p_res_rms += p_res**2
-        print(f"ALL: {self._resid(self._idxcurr, self._idxprev, 1)[1]} \t", end='')
-        print(f"DIFF: {self._resid(self._idxcurr, self._idxprev, 1)[1] - np.sqrt(p_res_rms)} \t")
+        resids = []
+        for ii in range(order+1):
+            resids.append(self._resid(self._curr_modes_regidx[ii], self._prev_modes_regidx[ii], 1))
+
+        self._update_pseudostep_multipinfo(order, i + 1, resids)
+
+#        print(f"{tcurr = }, {i = }, {order = } \t", end='')
+#        p_res_rms = 0
+#        for i in range(order+1):
+#            p_res = self._resid(self._curr_modes_regidx[i], self._prev_modes_regidx[i], 1)[1]
+#            print(f"L{i} = {p_res} \t", end='')
+#            p_res_rms += p_res**2
+#        print(f"ALL: {self._resid(self._idxcurr, self._idxprev, 1)[1]} \t", end='')
+#        print(f"DIFF: {self._resid(self._idxcurr, self._idxprev, 1)[1] - np.sqrt(p_res_rms)} \t")

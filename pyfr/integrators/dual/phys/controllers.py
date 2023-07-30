@@ -32,6 +32,7 @@ class BaseDualController(BaseDualIntegrator):
 
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
+        self.pseudointegrator.pseudostep_multipinfo = []
 
 
 class DualNoneController(BaseDualController):

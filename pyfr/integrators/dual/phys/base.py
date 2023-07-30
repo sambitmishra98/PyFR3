@@ -31,6 +31,10 @@ class BaseDualIntegrator(BaseIntegrator):
         return self.pseudointegrator.pseudostepinfo
 
     @property
+    def pseudostep_multipinfo(self):
+        return self.pseudointegrator.pseudostep_multipinfo
+
+    @property
     def soln(self):
         if not self._curr_soln:
             self._curr_soln = self.system.ele_scal_upts(
