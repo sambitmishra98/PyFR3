@@ -63,7 +63,7 @@ class BaseIntegrator:
         self.abort = False
 
         # Smoothly step to target time in the last near_t steps
-        self.dt_fact = self.cfg.getfloat('solver-time-integrator', 'dt-fact', 0.9)
+        self.fact = self.cfg.getfloat('solver-time-integrator', 'dt-fact', 0.9)
         self._dt_in = cfg.getfloat('solver-time-integrator', 'dt')
         self._dt_near = None
 
@@ -72,10 +72,12 @@ class BaseIntegrator:
         steps_with_dt_far = t_diff / self._dt_in
         steps_to_t = -(steps_with_dt_far // -1)
 
-        if steps_with_dt_far == 0:
+        if steps_to_t == 1:
+            self._dt = t_diff
+        elif steps_with_dt_far == 0:
             self._dt_near = None
             self._dt = t_diff
-        elif (steps_with_dt_far - 1) / (steps_to_t - 1) < self.dt_fact:
+        elif (steps_with_dt_far - 1) / (steps_to_t - 1) < self.fact:
             if self._dt_near is None:
                 self._dt_near = t_diff / steps_to_t
             self._dt = self._dt_near                
