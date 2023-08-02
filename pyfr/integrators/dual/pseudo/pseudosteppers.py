@@ -191,7 +191,7 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
         self._nstages = len(self.b)
 
         # Allocate storage for the local pseudo time-step field
-        self.dtau_upts = [self.backend.matrix(shape, np.ones(shape)*self._dtau,
+        self.dtau_upts = [self.backend.matrix(shape, np.ones(shape)*self.dtau,
                                               tags={'align'})
                           for shape in self.system.ele_shapes]
 
