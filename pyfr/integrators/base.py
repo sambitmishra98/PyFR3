@@ -64,7 +64,7 @@ class BaseIntegrator:
 
         # Smoothly step to target time in the last near_t steps
         self.fact = self.cfg.getfloat('solver-time-integrator', 'dt-fact', 0.9)
-        self.fact_max = 0.001
+        self.fact_max = 1.001
         self._dt_in = cfg.getfloat('solver-time-integrator', 'dt')
         self._dt_near = None
 
