@@ -58,6 +58,26 @@ class SDIRK33Stepper(BaseDIRKStepper):
     ]
 
 
+class ESDIRK23Stepper(BaseDIRKStepper):
+    stepper_name = 'esdirk23'
+    nstages = 3
+    fsal = True
+
+    gamma = (2-math.sqrt(2))/2
+    b2 = (1 - 2*gamma) / (4*gamma)
+    b2_hat = gamma*(-2+7*gamma-5*gamma**2 + 4*gamma**3) / (2*(2*gamma - 1))
+    b3_hat = -2*gamma**2*(1 - gamma + gamma**2) / (2*gamma - 1)
+
+    a = [
+        [0],
+        [gamma, gamma],
+        [(1-b2-gamma), b2, gamma]
+    ]
+
+    b = [1 - b2 - gamma, b2, gamma]
+    bhat = [1 - b2_hat - b3_hat, b2_hat, b3_hat]
+
+
 class SDIRK43Stepper(BaseDIRKStepper):
     stepper_name = 'sdirk43'
     nstages = 3
