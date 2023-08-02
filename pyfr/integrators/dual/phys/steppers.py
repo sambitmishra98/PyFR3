@@ -35,6 +35,36 @@ class BaseDIRKStepper(BaseDualStepper):
         self.pseudointegrator.store_current_soln()
 
 
+class AdaptiveDIRKStepper(BaseDualStepper):
+
+    # We need 2 more registers, one for old solution and another for error.
+    stepper_nregs = 3
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if self.fsal:
+            self.b = self.a[-1]
+    
+        self.c = [sum(row) for row in self.a]
+
+    @property
+    def stage_nregs(self):
+        return self.nstages
+
+    def step(self, t, dt):
+        for s, (sc, tc) in enumerate(zip(self.a, self.c)):
+            self.pseudointegrator.init_stage(s, sc, dt)
+            self.pseudointegrator.pseudo_advance(t + dt*tc)
+            self.pseudointegrator.finalise_stage(s, t + dt*tc)
+
+        if not self.fsal:
+            bcoeffs = [bt*dt for bt in self.b]
+            self.pseudointegrator.obtain_solution(bcoeffs)
+
+        self.pseudointegrator.store_current_soln()
+
+
 class DualBackwardEulerStepper(BaseDIRKStepper):
     stepper_name = 'backward-euler'
     nstages = 1
@@ -58,7 +88,7 @@ class SDIRK33Stepper(BaseDIRKStepper):
     ]
 
 
-class ESDIRK23Stepper(BaseDIRKStepper):
+class ESDIRK23Stepper(AdaptiveDIRKStepper):
     stepper_name = 'esdirk23'
     nstages = 3
     fsal = True
