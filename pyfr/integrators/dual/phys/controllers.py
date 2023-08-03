@@ -1,4 +1,9 @@
+import math
+
+import numpy as np
+
 from pyfr.integrators.dual.phys.base import BaseDualIntegrator
+from pyfr.mpiutil import get_comm_rank_root, mpi
 
 
 class BaseDualController(BaseDualIntegrator):
@@ -12,7 +17,7 @@ class BaseDualController(BaseDualIntegrator):
         if not self.isrestart:
             self._run_plugins()
 
-    def _accept_step(self, dt, idxcurr):
+    def _accept_step(self, dt, idxcurr, err = None):
         self.tcurr += dt
         self.nacptsteps += 1
         self.nacptchain += 1
@@ -32,6 +37,16 @@ class BaseDualController(BaseDualIntegrator):
 
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
+
+    def _reject_step(self, dt, idxold, err = None):
+
+        if dt <= 1e-12:
+            raise RuntimeError('Minimum sized time step rejected')
+
+        self.nacptchain = 0
+        self.nrjctsteps += 1
+
+        self.pseudointegrator._idxcurr = idxold
 
 
 class DualNoneController(BaseDualController):
@@ -55,3 +70,101 @@ class DualNoneController(BaseDualController):
 
             # We are not adaptive, so accept every step
             self._accept_step(self._dt, self.pseudointegrator._idxcurr)
+
+
+class DualPIController(BaseDualController):
+    controller_name = 'pi'
+    controller_has_variable_dt = True
+
+    _atol = 0.00001
+    _rtol = 0.00001
+
+    _norm = 'l2'    
+    _alpha = 0.58
+    _beta = 0.42
+    _saffac = 0.8
+
+    _errprev = 1.0
+
+    flag = 0         
+        
+    def _errest(self, rcurr, rprev, rerr):
+        comm, rank, root = get_comm_rank_root()
+
+        # Get a set of kernels to estimate the integration error
+        ekerns = self._get_reduction_kerns(rcurr, rprev, rerr, method='errest',
+                                           norm=self._norm)
+
+        # Bind the dynamic arguments
+        for kern in ekerns:
+            kern.bind(self._atol, self._rtol)
+
+        # Run the kernels
+        self.backend.run_kernels(ekerns, wait=True)
+
+        # Pseudo L2 norm
+        if self._norm == 'l2':
+            # Reduce locally (element types + field variables)
+            err = np.array([sum(v for k in ekerns for v in k.retval)])
+
+            # Reduce globally (MPI ranks)
+            comm.Allreduce(mpi.IN_PLACE, err, op=mpi.SUM)
+
+            # Normalise
+            err = math.sqrt(float(err) / self._gndofs)
+        # Uniform norm
+        else:
+            # Reduce locally (element types + field variables)
+            err = np.array([max(v for k in ekerns for v in k.retval)])
+
+            # Reduce globally (MPI ranks)
+            comm.Allreduce(mpi.IN_PLACE, err, op=mpi.MAX)
+
+            # Normalise
+            err = math.sqrt(float(err))
+
+        return err if not math.isnan(err) else 100
+    
+    def advance_to(self, t):
+        if t < self.tcurr:
+            raise ValueError('Advance time is in the past')
+
+        # Constants
+        maxf = 1.01
+        minf = 0.98
+        saff = 1 # self._saffac
+        sord = 3
+
+        expa = self._alpha / sord
+        expb = self._beta / sord
+
+        while self.tcurr < t:
+
+            # Decide on the time step
+            self.adjust_step(t)
+
+            # Decide on the pseudo time step
+            self.pseudointegrator.adjust_pseudo_step(self._dt)
+
+            # Take the physical step
+            idxcurr, idxprev, idxerr = self.step(self.tcurr, self._dt)
+
+            # Estimate the error
+            err = self._errest(idxcurr, idxprev, idxerr)
+
+            if err > self._errprev:
+                fac = 0.999
+            else:
+                fac = 1.001
+
+            print(f" dt = {self._dt},\t ", 
+                  f" factor = {fac},\t err-errprev = {err-self._errprev}" )
+
+            # Skip the first time we are asked to change the time step
+            self._dt_in = fac*self._dt
+
+            if err < 10000000.0:
+                self._errprev = err
+                self._accept_step(self._dt, idxcurr)
+            else:
+                self._accept_step(self._dt, idxprev)
