@@ -37,8 +37,7 @@ class BaseDIRKStepper(BaseDualStepper):
 
 class AdaptiveDIRKStepper(BaseDualStepper):
 
-    # We need 2 more registers, one for old solution and another for error.
-    stepper_nregs = 3
+    stepper_nregs = 1
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -39,13 +39,14 @@ class BaseDualPseudoIntegrator(BaseCommon):
         self.stepper_nregs = stepper_nregs
 
         # Amount of temp storage required for adaptive physical stepper
-        self.stepper_err_nregs = 2
+        self.err_nregs = 2
 
-        source_nregs = 1
+        self.source_nregs = 1
 
         # Determine the amount of temp storage required in total
         self.nregs = (self.pseudo_stepper_nregs + self.stepper_nregs +
-                      self.stage_nregs + source_nregs + self.stepper_err_nregs + self.aux_nregs)
+                      self.stage_nregs + self.source_nregs + 
+                      self.err_nregs + self.aux_nregs)
 
         # Construct the relevant system
         self.system = systemcls(backend, rallocs, mesh, initsoln,
@@ -90,9 +91,9 @@ class BaseDualPseudoIntegrator(BaseCommon):
         return self._regidx[sr]
 
     @property
-    def _stepper_err_regidx(self):
-        ser = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + 1
-        return self._regidx[ser:ser + self.stepper_err_nregs]
+    def _err_regidx(self):
+        ser = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + self.source_nregs
+        return self._regidx[ser:ser + self.err_nregs]
 
     @property
     def _stage_regidx(self):
