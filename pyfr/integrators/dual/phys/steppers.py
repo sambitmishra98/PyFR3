@@ -47,11 +47,16 @@ class AdaptiveDIRKStepper(BaseDualStepper):
     
         self.c = [sum(row) for row in self.a]
 
+        self._gndofs = self._get_gndofs()
+
     @property
     def stage_nregs(self):
         return self.nstages
 
     def step(self, t, dt):
+
+        self.pseudointegrator.store_previous_soln()
+
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
             self.pseudointegrator.init_stage(s, sc, dt)
             self.pseudointegrator.pseudo_advance(t + dt*tc)
@@ -62,6 +67,20 @@ class AdaptiveDIRKStepper(BaseDualStepper):
             self.pseudointegrator.obtain_solution(bcoeffs)
 
         self.pseudointegrator.store_current_soln()
+
+        # for bhat 
+        s = 3
+        sc = [(b - bh)*dt for b, bh in zip(self.b, self.bhat)]
+        self.pseudointegrator.init_stage(s, sc, dt)
+        self.pseudointegrator.pseudo_advance(t + dt)
+        self.pseudointegrator.finalise_err_stage(t + dt)
+
+        self.pseudointegrator.store_current_err()
+
+        return (self.pseudointegrator._idxcurr,         # Current  solution
+                self.pseudointegrator._err_regidx[0],   #   Old    solution
+                self.pseudointegrator._err_regidx[1]    # Error in solution
+                )
 
 
 class DualBackwardEulerStepper(BaseDIRKStepper):
@@ -100,7 +119,7 @@ class ESDIRK23Stepper(AdaptiveDIRKStepper):
     a = [
         [0],
         [gamma, gamma],
-        [(1-b2-gamma), b2, gamma]
+        [1 - b2 - gamma, b2, gamma]
     ]
 
     b = [1 - b2 - gamma, b2, gamma]

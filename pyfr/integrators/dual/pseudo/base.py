@@ -105,6 +105,10 @@ class BaseDualPseudoIntegrator(BaseCommon):
         psnregs = self.pseudo_stepper_nregs
         return self._regidx[psnregs:psnregs + self.stepper_nregs]
 
+    def store_previous_soln(self):
+        # Copy the previous soln into the second error register
+        self._add(0, self._err_regidx[0], 1, self._stepper_regidx[0])
+
     def init_stage(self, currstg, stepper_coeffs, dt):
         self.stepper_coeffs = stepper_coeffs
         self._dt = dt
@@ -120,9 +124,16 @@ class BaseDualPseudoIntegrator(BaseCommon):
         if self.stage_nregs > 1:
             self.system.rhs(tcurr, self._idxcurr, self._stage_regidx[currstg])
 
+    def finalise_err_stage(self, tcurr):
+        self.system.rhs(tcurr, self._idxcurr, self._err_regidx[1])
+
     def store_current_soln(self):
         # Copy the current soln into the first source register
         self._add(0, self._stepper_regidx[0], 1, self._idxcurr)
+
+    def store_current_err(self):
+        # Copy the error into the first error register
+        self._add(0, self._err_regidx[1], 1, self._idxcurr)
 
     def obtain_solution(self, bcoeffs):
         consts = [0, 1, *bcoeffs]
