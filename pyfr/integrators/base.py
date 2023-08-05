@@ -67,7 +67,7 @@ class BaseIntegrator:
     def adjust_step(self, t):
         t_diff = t - self.tcurr
         steps_with_dt_far = t_diff / self._dt_in
-        steps_to_t = -((steps_with_dt_far/self.fact_max) // -1)
+        steps_to_t = np.ceil(steps_with_dt_far/self.fact_max)
 
         if steps_to_t == 1:
             self._dt = t_diff
