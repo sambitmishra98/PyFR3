@@ -35,6 +35,54 @@ class BaseDIRKStepper(BaseDualStepper):
         self.pseudointegrator.store_current_soln()
 
 
+class AdaptiveDIRKStepper(BaseDualStepper):
+
+    stepper_nregs = 1
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if self.fsal:
+            self.b = self.a[-1]
+    
+        self.c = [sum(row) for row in self.a]
+
+        self._gndofs = self._get_gndofs()
+
+    @property
+    def stage_nregs(self):
+        return self.nstages
+
+    def step(self, t, dt):
+
+        self.pseudointegrator.store_previous_soln()
+
+        for s, (sc, tc) in enumerate(zip(self.a, self.c)):
+            self.pseudointegrator.init_stage(s, sc, dt)
+            self.pseudointegrator.pseudo_advance(t + dt*tc)
+            self.pseudointegrator.finalise_stage(s, t + dt*tc)
+
+        if not self.fsal:
+            bcoeffs = [bt*dt for bt in self.b]
+            self.pseudointegrator.obtain_solution(bcoeffs)
+
+        self.pseudointegrator.store_current_soln()
+
+        # for bhat 
+        s = 3
+        sc = [(b - bh)*dt for b, bh in zip(self.b, self.bhat)]
+        self.pseudointegrator.init_stage(s, sc, dt)
+        self.pseudointegrator.pseudo_advance(t + dt)
+        self.pseudointegrator.finalise_err_stage(t + dt)
+
+        self.pseudointegrator.store_current_err()
+
+        return (self.pseudointegrator._idxcurr,         # Current  solution
+                self.pseudointegrator._err_regidx[0],   #   Old    solution
+                self.pseudointegrator._err_regidx[1]    # Error in solution
+                )
+
+
 class DualBackwardEulerStepper(BaseDIRKStepper):
     stepper_name = 'backward-euler'
     nstages = 1
@@ -56,6 +104,26 @@ class SDIRK33Stepper(BaseDIRKStepper):
         [0.5*(1 - _al), _al],
         [(4 - 1.5*_al)*_al - 0.25, (1.5*_al - 5)*_al + 1.25, _al]
     ]
+
+
+class ESDIRK23Stepper(AdaptiveDIRKStepper):
+    stepper_name = 'esdirk23'
+    nstages = 3
+    fsal = True
+
+    gamma = (2-math.sqrt(2))/2
+    b2 = (1 - 2*gamma) / (4*gamma)
+    b2_hat = gamma*(-2+7*gamma-5*gamma**2 + 4*gamma**3) / (2*(2*gamma - 1))
+    b3_hat = -2*gamma**2*(1 - gamma + gamma**2) / (2*gamma - 1)
+
+    a = [
+        [0],
+        [gamma, gamma],
+        [1 - b2 - gamma, b2, gamma]
+    ]
+
+    b = [1 - b2 - gamma, b2, gamma]
+    bhat = [1 - b2_hat - b3_hat, b2_hat, b3_hat]
 
 
 class SDIRK43Stepper(BaseDIRKStepper):

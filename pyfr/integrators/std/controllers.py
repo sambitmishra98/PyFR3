@@ -175,10 +175,10 @@ class StdPIController(BaseStdController):
 
         while self.tcurr < t:
             # Decide on the time step
-            dt = max(min(t - self.tcurr, self._dt, self.dtmax), self.dtmin)
+            self._dt = max(min(t - self.tcurr, self._dt, self.dtmax), self.dtmin)
 
             # Take the step
-            idxcurr, idxprev, idxerr = self.step(self.tcurr, dt)
+            idxcurr, idxprev, idxerr = self.step(self.tcurr, self._dt)
 
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)
@@ -188,13 +188,13 @@ class StdPIController(BaseStdController):
             fac = min(maxf, max(minf, saff*fac))
 
             # Compute the size of the next step
-            self._dt_in = fac*dt
+            self._dt_in = fac*self._dt
 
             self.adjust_step(t)
 
             # Decide if to accept or reject the step
             if err < 1.0:
                 self._errprev = err
-                self._accept_step(dt, idxcurr, err=err)
+                self._accept_step(self._dt, idxcurr, err=err)
             else:
-                self._reject_step(dt, idxprev, err=err)
+                self._reject_step(self._dt, idxprev, err=err)
