@@ -29,6 +29,14 @@ class BaseDualController(BaseDualIntegrator):
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
 
+    def _reject_step(self, dt, idxold):
+        if dt <= self.dtmin:
+            raise RuntimeError('Minimum sized time step rejected')
+
+        self.nacptchain = 0
+        self.nrjctsteps += 1
+
+        self._idxcurr = idxold
 
 class DualNoneController(BaseDualController):
     controller_name = 'none'
@@ -47,7 +55,29 @@ class DualNoneController(BaseDualController):
             self.pseudointegrator.adjust_pseudo_step(self._dt)
 
             # Take the physical step
-            self.step(self.tcurr, self._dt)
+            idxcurr = self.step(self.tcurr, self._dt)
 
             # We are not adaptive, so accept every step
-            self._accept_step(self._dt, self.pseudointegrator._idxcurr)
+            self._accept_step(self._dt, idxcurr)
+
+class DualPIController(BaseDualController):
+    controller_name = 'pi'
+    controller_has_variable_dt = True
+
+    def advance_to(self, t):
+        if t < self.tcurr:
+            raise ValueError('Advance time is in the past')
+
+        while self.tcurr < t:
+
+            # Decide on the time step
+            self.adjust_step(t)
+
+            # Decide on the pseudo time step
+            self.pseudointegrator.adjust_pseudo_step(self._dt)
+
+            # Take the physical step
+            idxcurr = self.step(self.tcurr, self._dt)
+
+            # We are will soon be adaptive, so do not blindly accept every step
+            self._accept_step(self._dt, idxcurr)

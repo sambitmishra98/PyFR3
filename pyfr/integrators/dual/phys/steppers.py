@@ -34,6 +34,7 @@ class BaseDIRKStepper(BaseDualStepper):
 
         self.pseudointegrator.store_current_soln()
 
+        return self.pseudointegrator._idxcurr
 
 class DualBackwardEulerStepper(BaseDIRKStepper):
     stepper_name = 'backward-euler'
