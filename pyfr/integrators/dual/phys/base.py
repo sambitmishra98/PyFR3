@@ -1,3 +1,5 @@
+import math
+
 from pyfr.integrators.base import BaseIntegrator
 from pyfr.integrators.dual.pseudo import get_pseudo_integrator
 
