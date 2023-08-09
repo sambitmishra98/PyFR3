@@ -41,7 +41,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.npmgcycles = 0
 
         # Multigrid pseudo-time steps
-        dtau = cfg.getfloat(sect, 'pseudo-dt')
+        self.dtau = cfg.getfloat(sect, 'pseudo-dt')
         self.dtauf = cfg.getfloat(mgsect, 'pseudo-dt-fact', 1.0)
 
         self._maxniters = cfg.getint(sect, 'pseudo-niters-max', 0)
@@ -71,7 +71,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
-                mcfg.set(sect, 'pseudo-dt', dtau*self.dtauf**(order - l))
+                mcfg.set(sect, 'pseudo-dt', self.dtau*self.dtauf**(order - l))
 
                 for s in cfg.sections():
                     if (m := re.match(f'solver-(.*)-mg-p{l}$', s)):
@@ -275,6 +275,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                                  ' self.level == self._order')
 
         return self.pintg._aux_regidx
+
+    def adjust_pseudo_step(self, dt):
+        for l in self.levels:
+            self.pintgs[l].adjust_pseudo_step(dt)
 
     def pseudo_advance(self, tcurr):
         # Multigrid levels and step counts
