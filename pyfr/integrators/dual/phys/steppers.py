@@ -34,57 +34,26 @@ class BaseDIRKStepper(BaseDualStepper):
 
         self.pseudointegrator.store_current_soln()
 
-
-class AdaptiveDIRKStepper(BaseDualStepper):
-
-    stepper_nregs = 1
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        if self.fsal:
-            self.b = self.a[-1]
-    
-        self.c = [sum(row) for row in self.a]
-
-        self._gndofs = self._get_gndofs()
-
-    @property
-    def stage_nregs(self):
-        return self.nstages
-
-    def step(self, t, dt):
-
-        self.pseudointegrator.store_previous_soln()
-
-        for s, (sc, tc) in enumerate(zip(self.a, self.c)):
+        if self.stepper_has_errest:
+            s = 5
+            sc = [(b - bh)*dt for b, bh in zip(self.b, self.bhat)]
             self.pseudointegrator.init_stage(s, sc, dt)
-            self.pseudointegrator.pseudo_advance(t + dt*tc)
-            self.pseudointegrator.finalise_stage(s, t + dt*tc)
+            self.pseudointegrator.pseudo_advance(t + dt)
+            self.pseudointegrator.finalise_err_stage(t + dt)
 
-        if not self.fsal:
-            bcoeffs = [bt*dt for bt in self.b]
-            self.pseudointegrator.obtain_solution(bcoeffs)
+            self.pseudointegrator.store_current_err()
 
-        self.pseudointegrator.store_current_soln()
-
-        # for bhat 
-        s = 3
-        sc = [(b - bh)*dt for b, bh in zip(self.b, self.bhat)]
-        self.pseudointegrator.init_stage(s, sc, dt)
-        self.pseudointegrator.pseudo_advance(t + dt)
-        self.pseudointegrator.finalise_err_stage(t + dt)
-
-        self.pseudointegrator.store_current_err()
-
-        return (self.pseudointegrator._idxcurr,         # Current  solution
-                self.pseudointegrator._err_regidx[0],   #   Old    solution
-                self.pseudointegrator._err_regidx[1]    # Error in solution
-                )
+            return (self.pseudointegrator._idxcurr,         # Current  solution
+                    self.pseudointegrator._err_regidx[0],   #   Old    solution
+                    self.pseudointegrator._err_regidx[1]    # Error in solution
+                    )
+        else:
+            return self.pseudointegrator._idxcurr
 
 
 class DualBackwardEulerStepper(BaseDIRKStepper):
     stepper_name = 'backward-euler'
+    stepper_has_errest = False
     nstages = 1
     fsal = True
 
@@ -93,6 +62,7 @@ class DualBackwardEulerStepper(BaseDIRKStepper):
 
 class SDIRK33Stepper(BaseDIRKStepper):
     stepper_name = 'sdirk33'
+    stepper_has_errest = False
     nstages = 3
     fsal = True
 
@@ -108,6 +78,7 @@ class SDIRK33Stepper(BaseDIRKStepper):
 
 class SDIRK43Stepper(BaseDIRKStepper):
     stepper_name = 'sdirk43'
+    stepper_has_errest = False
     nstages = 3
     fsal = False
 
@@ -123,8 +94,9 @@ class SDIRK43Stepper(BaseDIRKStepper):
     b = [_b_rlam, 1 - 2*_b_rlam, _b_rlam]
 
 
-class ESDIRK23Stepper(AdaptiveDIRKStepper):
+class ESDIRK23Stepper(BaseDIRKStepper):
     stepper_name = 'esdirk23'
+    stepper_has_errest = True
     nstages = 3
     fsal = True
 
@@ -143,8 +115,9 @@ class ESDIRK23Stepper(AdaptiveDIRKStepper):
     bhat = [1 - b2_hat - b3_hat, b2_hat, b3_hat]
 
 
-class ESDIRK35Stepper(AdaptiveDIRKStepper):
+class ESDIRK35Stepper(BaseDIRKStepper):
     stepper_name = 'esdirk35'
+    stepper_has_errest = True
     nstages = 5
     fsal = True
 

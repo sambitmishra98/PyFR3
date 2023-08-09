@@ -62,10 +62,10 @@ class DualNoneController(BaseDualController):
             self.pseudointegrator.adjust_pseudo_step(self._dt)
 
             # Take the physical step
-            self.step(self.tcurr, self._dt)
+            idxcurr = self.step(self.tcurr, self._dt)
 
             # We are not adaptive, so accept every step
-            self._accept_step(self._dt, self.pseudointegrator._idxcurr)
+            self._accept_step(self._dt, idxcurr)
 
 
 class DualPIController(BaseDualController):
@@ -126,13 +126,6 @@ class DualPIController(BaseDualController):
             raise ValueError('Advance time is in the past')
 
         # Constants
-        maxf = 1.01
-        minf = 0.98
-        saff = 1 # self._saffac
-        sord = 3
-
-        expa = self._alpha / sord
-        expb = self._beta / sord
 
         while self.tcurr < t:
 
@@ -154,13 +147,11 @@ class DualPIController(BaseDualController):
                 fac = 1.001
 
             print(f" dt = {self._dt},\t ", 
-                  f" factor = {fac},\t err-errprev = {err-self._errprev}" )
+                  f" factor = {fac},\t ",
+                  f" err-errprev = {err-self._errprev}" )
 
             # Skip the first time we are asked to change the time step
             self._dt_in = fac*self._dt
 
-            if err < 10000000.0:
-                self._errprev = err
-                self._accept_step(self._dt, idxcurr)
-            else:
-                self._accept_step(self._dt, idxprev)
+            self._errprev = err
+            self._accept_step(self._dt, idxcurr)

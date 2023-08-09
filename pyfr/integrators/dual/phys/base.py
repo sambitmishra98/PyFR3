@@ -20,6 +20,8 @@ class BaseDualIntegrator(BaseCommon, BaseIntegrator):
         # Event handlers for advance_to
         self.plugins = self._get_plugins(initsoln)
 
+        self._gndofs = self._get_gndofs()
+
         # Commit the pseudo integrators now we have the plugins
         self.pseudointegrator.commit()
 
