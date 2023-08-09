@@ -73,3 +73,48 @@ class SDIRK43Stepper(BaseDIRKStepper):
 
     _b_rlam = 1/(6*(1 - 2*_a_lam)*(1 - 2*_a_lam))
     b = [_b_rlam, 1 - 2*_b_rlam, _b_rlam]
+
+
+class ESDIRK23Stepper(BaseDIRKStepper):
+    stepper_name = 'esdirk23'
+    nstages = 3
+    fsal = True
+
+    gamma = (2-math.sqrt(2))/2
+    b2 = (1 - 2*gamma) / (4*gamma)
+    b2_hat = gamma*(-2+7*gamma-5*gamma**2 + 4*gamma**3) / (2*(2*gamma - 1))
+    b3_hat = -2*gamma**2*(1 - gamma + gamma**2) / (2*gamma - 1)
+
+    a = [
+        [0],
+        [gamma, gamma],
+        [1 - b2 - gamma, b2, gamma]
+    ]
+
+    bhat = [1 - b2_hat - b3_hat, b2_hat, b3_hat]
+
+
+class ESDIRK35Stepper(BaseDIRKStepper):
+    stepper_name = 'esdirk35'
+    nstages = 5
+    fsal = True
+
+    _w = 9/40
+    _x1 = 9*(1+math.sqrt(2))/80
+    _y1 = (22+15*math.sqrt(2))/(80*(1+math.sqrt(2)))
+    _y2 = -7/(40*(1+math.sqrt(2)))
+    _z1 =  (2398+1205*math.sqrt(2))/( 2835*(4+3*math.sqrt(2)))
+    _z2 = (-2374*(1+2*math.sqrt(2)))/(2835*(5+3*math.sqrt(2)))
+    
+    a = [
+        [0],
+        [_w, _w],
+        [_x1, _x1, _w],
+        [_y1, _y1, _y2, _w],
+        [_z1, _z1, _z2, 5827/7560, _w]]
+
+    bhat = [4555948517383/24713416420891, 
+            4555948517383/24713416420891, 
+            -7107561914881/25547637784726, 
+            30698249/44052120, 
+            49563/233080]
