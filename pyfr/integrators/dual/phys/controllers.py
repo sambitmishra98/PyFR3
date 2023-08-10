@@ -1,4 +1,5 @@
 import math
+from time import perf_counter
 
 import numpy as np
 
@@ -72,17 +73,15 @@ class DualPIController(BaseDualController):
     controller_name = 'pi'
     controller_has_variable_dt = True
 
-    _atol = 0.00001
-    _rtol = 0.00001
+    _atol = 1
+    _rtol = 1
 
     _norm = 'l2'    
-    _alpha = 0.58
-    _beta = 0.42
-    _saffac = 0.8
-
     _errprev = 1.0
 
     flag = 0         
+    cost = 0
+    the_factor = 1.01
         
     def _errest(self, rcurr, rprev, rerr):
         comm, rank, root = get_comm_rank_root()
@@ -136,22 +135,38 @@ class DualPIController(BaseDualController):
             self.pseudointegrator.adjust_pseudo_step(self._dt)
 
             # Take the physical step
+            start = perf_counter()
             idxcurr, idxprev, idxerr = self.step(self.tcurr, self._dt)
-
+            cost = (perf_counter() - start) / self._dt
+            
+            did_cost_decrease = cost < self.the_factor*self.cost
+            
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)
 
-            if err > self._errprev:
-                fac = 0.999
+            if did_cost_decrease and err < 10*self._errprev:
+                fac = self.the_factor
             else:
-                fac = 1.001
+                fac = 1/self.the_factor
 
-            print(f" dt = {self._dt},\t ", 
-                  f" factor = {fac},\t ",
-                  f" err-errprev = {err-self._errprev}" )
+            if err < 10*self._errprev:
+                self._accept_step(self._dt, idxcurr)
+            else:
+                self.the_factor*=0.1
+                self._reject_step(self._dt, idxprev)
+                print(f"REJECTED STEP: dt = {self._dt:.5f},\t ")
+
+            # Print with rounded to 3 decimal places
+            print(
+                  f"t = {self.tcurr:.5f},\t ",
+                  f" dt = {self._dt:.5f},\t ",
+                  f" cost = {cost:.5f},\t ",
+                  f" self.cost = {self.cost:.5f},\t ",
+                  f" err = {err:.5f},\t ",
+                  )
+            self.cost = cost            
 
             # Skip the first time we are asked to change the time step
             self._dt_in = fac*self._dt
 
             self._errprev = err
-            self._accept_step(self._dt, idxcurr)
