@@ -1,3 +1,4 @@
+import csv
 import math
 from time import perf_counter
 
@@ -77,12 +78,18 @@ class DualPIController(BaseDualController):
     _rtol = 1
 
     _norm = 'l2'    
-    _errprev = 1.0
 
     flag = 0         
     cost = 0
     the_factor = 1.01
-        
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.csvfile = open('dual_pi_controller.csv', 'w', newline='')
+        self.csvwriter = csv.writer(self.csvfile)
+        # Write header row
+        self.csvwriter.writerow(['t', 'dt', 'cost', 'self.cost', 'err'])
+                
     def _errest(self, rcurr, rprev, rerr):
         comm, rank, root = get_comm_rank_root()
 
@@ -139,34 +146,27 @@ class DualPIController(BaseDualController):
             idxcurr, idxprev, idxerr = self.step(self.tcurr, self._dt)
             cost = (perf_counter() - start) / self._dt
             
-            did_cost_decrease = cost < self.the_factor*self.cost
+            did_cost_decrease = cost < self.cost
             
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)
 
-            if did_cost_decrease and err < 10*self._errprev:
+            if did_cost_decrease:
                 fac = self.the_factor
             else:
                 fac = 1/self.the_factor
 
-            if err < 10*self._errprev:
-                self._accept_step(self._dt, idxcurr)
-            else:
-                self.the_factor*=0.1
-                self._reject_step(self._dt, idxprev)
-                print(f"REJECTED STEP: dt = {self._dt:.5f},\t ")
+            self._accept_step(self._dt, idxcurr)
 
             # Print with rounded to 3 decimal places
-            print(
-                  f"t = {self.tcurr:.5f},\t ",
-                  f" dt = {self._dt:.5f},\t ",
-                  f" cost = {cost:.5f},\t ",
-                  f" self.cost = {self.cost:.5f},\t ",
-                  f" err = {err:.5f},\t ",
-                  )
+            self.csvwriter.writerow([f"{self.tcurr:.5f}",
+                                    f"{self._dt:.5f}",
+                                    f"{cost:.5f}",
+                                    f"{self.cost:.5f}",
+                                    f"{err:.5f}"])
+            self.csvfile.flush()  # to make sure the log is written immediately
+
             self.cost = cost            
 
             # Skip the first time we are asked to change the time step
             self._dt_in = fac*self._dt
-
-            self._errprev = err
