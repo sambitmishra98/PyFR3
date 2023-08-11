@@ -1,4 +1,5 @@
 import csv
+from collections import deque
 import math
 from time import perf_counter
 
@@ -83,12 +84,16 @@ class DualPIController(BaseDualController):
     cost = 0
     the_factor = 1.01
 
+    costs = []
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.csvfile = open('dual_pi_controller.csv', 'w', newline='')
         self.csvwriter = csv.writer(self.csvfile)
         # Write header row
-        self.csvwriter.writerow(['t', 'dt', 'cost', 'self.cost', 'err'])
+        self.csvwriter.writerow(['t', 'dt', 'cost', 'slope', 'err'])
+
+        self.costs = deque(maxlen=30) 
                 
     def _errest(self, rcurr, rprev, rerr):
         comm, rank, root = get_comm_rank_root()
@@ -127,6 +132,15 @@ class DualPIController(BaseDualController):
 
         return err if not math.isnan(err) else 100
     
+    def compute_slope(self):
+        x = np.array(range(len(self.costs)))
+        y = np.array(self.costs)
+        n = len(self.costs)
+
+        b = (n * np.sum(x*y) - np.sum(x) * np.sum(y)) / \
+            (n * np.sum(x**2) - np.sum(x)**2)
+        return b
+    
     def advance_to(self, t):
         if t < self.tcurr:
             raise ValueError('Advance time is in the past')
@@ -145,16 +159,21 @@ class DualPIController(BaseDualController):
             start = perf_counter()
             idxcurr, idxprev, idxerr = self.step(self.tcurr, self._dt)
             cost = (perf_counter() - start) / self._dt
-            
-            did_cost_decrease = cost < self.cost
+
+            self.costs.append(cost)
             
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)
 
-            if did_cost_decrease:
-                fac = self.the_factor
+            if len(self.costs) == 30:
+                slope = self.compute_slope()
+                if slope < 0:  # Costs are decreasing
+                    fac = self.the_factor
+                else:  # Costs are increasing or stable
+                    fac = 1/self.the_factor
             else:
-                fac = 1/self.the_factor
+                slope = 1.0
+                fac = 1.0
 
             self._accept_step(self._dt, idxcurr)
 
@@ -162,7 +181,7 @@ class DualPIController(BaseDualController):
             self.csvwriter.writerow([f"{self.tcurr:.5f}",
                                     f"{self._dt:.5f}",
                                     f"{cost:.5f}",
-                                    f"{self.cost:.5f}",
+                                    f"{slope:.5f}",
                                     f"{err:.5f}"])
             self.csvfile.flush()  # to make sure the log is written immediately
 
