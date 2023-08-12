@@ -6,8 +6,7 @@ import sys
 
 # Check Python version
 if sys.version_info < (3, 10):
-    print('Minimum Python version is 3.10')
-    sys.exit()
+    sys.exit('Minimum Python version is 3.10')
 
 
 # PyFR version
