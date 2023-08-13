@@ -1,7 +1,9 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from configparser import NoOptionError
+import re
 
 from pyfr.integrators.base import BaseCommon
+from pyfr.plugins import get_plugin
 
 
 class BaseDualPseudoIntegrator(BaseCommon):
@@ -72,6 +74,9 @@ class BaseDualPseudoIntegrator(BaseCommon):
         if self._pseudo_norm not in {'l2', 'uniform'}:
             raise ValueError('Invalid pseudo-residual norm')
 
+        # Plugins for the pseudo-integrator
+        self.pseudo_plugins = self._get_pseudo_plugins()
+
         # Pointwise kernels for the pseudo-integrator
         self.pintgkernels = defaultdict(list)
 
@@ -99,6 +104,7 @@ class BaseDualPseudoIntegrator(BaseCommon):
 
     def init_stage(self, currstg, stepper_coeffs, dt):
         self.stepper_coeffs = stepper_coeffs
+        self.current_stage = currstg
         self._dt = dt
 
         svals = [0, 1 / dt, *stepper_coeffs[:-1]]
@@ -121,3 +127,33 @@ class BaseDualPseudoIntegrator(BaseCommon):
         regidxs = [self._idxcurr, self._stepper_regidx[0], *self._stage_regidx]
 
         self._addv(consts, regidxs, subdims=self._subdims)
+
+    def _get_pseudo_plugins(self):
+        pseudo_plugins = []
+
+        for s in self.cfg.sections():
+            if (m := re.match('pseudo-plugin-(.+?)(?:-(.+))?$', s)):
+                cfgsect, name, suffix = m[0], m[1], m[2]
+
+                args = ('pseudo', name, self, cfgsect)
+                args += (suffix, )
+
+                data = {}
+
+                # Instantiate
+                pseudo_plugins.append(get_plugin(*args, **data))
+
+        return pseudo_plugins
+
+    def _run_pseudo_plugins(self):
+        self.backend.wait()
+
+        # Fire off the plugins and tally up the runtime
+        for pseudo_plugin in self.pseudo_plugins:
+            pseudo_plugin(self)
+
+    def call_plugin_dtau(self, taus):
+        self.taulist = deque(taus)
+
+    def register(self,i):
+        return self.system.ele_scal_upts(i)

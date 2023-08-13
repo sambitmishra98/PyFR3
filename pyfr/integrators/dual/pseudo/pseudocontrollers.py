@@ -62,6 +62,14 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostepinfo(self, niters, resid):
         self.pseudostepinfo.append((self.ntotiters, niters, resid))
 
+    def wrapper_on_pseudo_plugins(self, i):
+        if self.taulist:
+            if (self.tcurr > self.taulist[0][0] and 
+                self.current_stage == self.taulist[0][1] and 
+                i == self.taulist[0][2]):
+
+                self.taulist.pop()
+                self._run_pseudo_plugins()
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'
@@ -71,6 +79,9 @@ class DualNonePseudoController(BaseDualPseudoController):
         self.tcurr = tcurr
 
         for i in range(self.maxniters):
+
+            self.wrapper_on_pseudo_plugins(i)
+
             # Take the step
             self._idxcurr, self._idxprev = self.step(self.tcurr)
 
@@ -153,5 +164,6 @@ class DualPIPseudoController(BaseDualPseudoController):
             self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
             self.localerrest(self._idxerr)
 
+            self.wrapper_on_pseudo_plugins(i)
             if self.convmon(i, self.minniters):
                 break

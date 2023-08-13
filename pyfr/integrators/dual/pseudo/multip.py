@@ -94,6 +94,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 def convmon(self, *args, **kwargs):
                     pass
 
+                def wrapper_on_pseudo_plugins(self, i):
+                    pass
+
                 def _rhs_with_dts(self, t, uin, fout, mg_add=True):
                     super()._rhs_with_dts(t, uin, fout)
 
@@ -141,6 +144,31 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
     @property
     def _regidx(self):
         return self.pintg._regidx
+
+    @property
+    def taulist(self):
+        return self.pintg.taulist
+
+    @property
+    def current_stage(self):
+        return self.pintg.current_stage
+
+    @current_stage.setter
+    def current_stage(self, y):
+        for s in self.pintgs.values():
+            s.current_stage = y
+
+    @property
+    def pseudo_plugins(self):
+        return self.pintg.pseudo_plugins
+
+    @pseudo_plugins.setter
+    def pseudo_plugins(self, y):
+        self.pintg.pseudo_plugins = y
+
+    @property
+    def nregs(self):
+        return self.pintg.nregs
 
     @property
     def stage_nregs(self):
@@ -288,6 +316,15 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.tcurr = tcurr
 
         for i in range(self._maxniters):
+
+            if self.taulist:
+                if (self.tcurr > self.taulist[0][0] and 
+                    self.current_stage == self.taulist[0][1] and 
+                    i == self.taulist[0][2]):
+
+                    self.taulist.pop()
+                    self._run_pseudo_plugins()
+
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 

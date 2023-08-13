@@ -8,6 +8,9 @@ class BaseDualController(BaseDualIntegrator):
         # Solution filtering frequency
         self._fnsteps = self.cfg.getint('soln-filter', 'nsteps', '0')
 
+        self.pseudointegrator.mesh_uuid = self.mesh_uuid
+        self.pseudointegrator.cfgmeta = self.cfgmeta
+
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
