@@ -146,6 +146,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         return self.pintg._regidx
 
     @property
+    def dtau_mats(self):
+        return self.pintg.dtau_mats
+
+    @property
     def taulist(self):
         return self.pintg.taulist
 

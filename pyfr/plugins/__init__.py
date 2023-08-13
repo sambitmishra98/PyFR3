@@ -12,6 +12,7 @@ from pyfr.plugins.source import SourcePlugin
 from pyfr.plugins.tavg import TavgCLIPlugin, TavgPlugin
 from pyfr.plugins.writer import WriterPlugin
 from pyfr.plugins.registerwriter import RegisterWriterPlugin
+from pyfr.plugins.pseudodtwriter import PseudoDtWriterPlugin
 from pyfr.util import subclass_where
 
 

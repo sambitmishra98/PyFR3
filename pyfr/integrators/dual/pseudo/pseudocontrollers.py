@@ -1,3 +1,4 @@
+import csv
 import numpy as np
 
 from pyfr.integrators.dual.pseudo.base import BaseDualPseudoIntegrator
@@ -98,6 +99,12 @@ class DualPIPseudoController(BaseDualPseudoController):
         super().__init__(*args, **kwargs)
         sect = 'solver-time-integrator'
 
+        self.logfile = open('log.csv', 'w', newline='')
+        self.csvwriter = csv.writer(self.logfile)
+        self.csvwriter.writerow(['tcurr', 'n', 'mean'])  # Write the header
+
+        self.counter = 1
+
         # Error norm
         self._norm = self.cfg.get(sect, 'errest-norm', 'l2')
         if self._norm not in {'l2', 'uniform'}:
@@ -156,6 +163,12 @@ class DualPIPseudoController(BaseDualPseudoController):
     def localerrest(self, errbank):
         self.backend.run_kernels(self.pintgkernels['localerrest', errbank])
 
+    def init_stage(self, currstg, stepper_coeffs, dt):
+        super().init_stage(currstg, stepper_coeffs, dt)
+    
+        # Update the pseudo time-step size
+        #self.rewind_dtau()
+
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
 
@@ -163,6 +176,15 @@ class DualPIPseudoController(BaseDualPseudoController):
             # Take the step
             self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
             self.localerrest(self._idxerr)
+
+            #if i == 50:
+            #    self.save_dtau()
+
+            for dtau_mat in self.dtau_upts:
+                mat = dtau_mat.get()
+                self.csvwriter.writerow([self.tcurr, self.counter, mat.mean()])
+
+            self.counter += 1
 
             self.wrapper_on_pseudo_plugins(i)
             if self.convmon(i, self.minniters):
