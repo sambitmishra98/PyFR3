@@ -1,4 +1,6 @@
+from collections import deque
 import csv
+from pprint import pprint
 import numpy as np
 
 from pyfr.integrators.dual.pseudo.base import BaseDualPseudoIntegrator
@@ -14,6 +16,8 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
 
         # Stats on the most recent step
         self.pseudostepinfo = []
+
+        self.taulist = deque()
 
     def convmon(self, i, minniters, dt_fac=1):
         if i >= minniters - 1:
@@ -45,6 +49,37 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
 
         # Pseudo L2 norm
         if self._pseudo_norm == 'l2':
+            # Reduce locally (element types) and globally (MPI ranks)
+            res = np.array([sum(e) for e in zip(*[r.retval for r in rkerns])])
+            comm.Allreduce(mpi.IN_PLACE, res, op=mpi.SUM)
+
+            # Normalise and return
+            return tuple(np.sqrt(res / self._gndofs))
+        # Uniform norm
+        else:
+            # Reduce locally (element types) and globally (MPI ranks)
+            res = np.array([max(e) for e in zip(*[r.retval for r in rkerns])])
+            comm.Allreduce(mpi.IN_PLACE, res, op=mpi.MAX)
+
+            # Normalise and return
+            return tuple(np.sqrt(res))
+
+    def _show_resid(self, rcurr, rold, norm, dt_fac):
+        comm, rank, root = get_comm_rank_root()
+
+        # Get a set of kernels to compute the residual
+        rkerns = self._get_reduction_kerns(rcurr, rold, method='resid',
+                                           norm=norm)
+
+        # Bind the dynmaic arguments
+        for kern in rkerns:
+            kern.bind(dt_fac)
+
+        # Run the kernels
+        self.backend.run_kernels(rkerns, wait=True)
+
+        # Pseudo L2 norm
+        if norm == 'l2':
             # Reduce locally (element types) and globally (MPI ranks)
             res = np.array([sum(e) for e in zip(*[r.retval for r in rkerns])])
             comm.Allreduce(mpi.IN_PLACE, res, op=mpi.SUM)
@@ -99,9 +134,21 @@ class DualPIPseudoController(BaseDualPseudoController):
         super().__init__(*args, **kwargs)
         sect = 'solver-time-integrator'
 
-        self.logfile = open('log.csv', 'w', newline='')
+        order = self.cfg.getint('solver', 'order')
+
+        self.logfile = open(f'dtau-lvl{order}.csv', 'w', newline='')
         self.csvwriter = csv.writer(self.logfile)
-        self.csvwriter.writerow(['tcurr', 'n', 'mean'])  # Write the header
+        self.csvwriter.writerow(['tcurr', 'n', 
+                                 'min-p', 'mean-p', 'max-p',
+                                 'min-u', 'mean-u', 'max-u',
+                                 ])
+
+        self.logfile2 = open(f'res-lvl{order}.csv', 'w', newline='')
+        self.csvwriter2 = csv.writer(self.logfile2)
+        self.csvwriter2.writerow(['tcurr', 'n', 
+                                 'l2-p', 'max-p',
+                                 'l2-u', 'max-u',
+                                 ])
 
         self.counter = 1
 
@@ -127,15 +174,19 @@ class DualPIPseudoController(BaseDualPseudoController):
         tplargs['dtau_maxf'] = self.cfg.getfloat(sect, 'pseudo-dt-max-mult',
                                                  3.0)
 
+        tplargs['dtau_minf'] = self.cfg.getfloat(sect, 'pseudo-dt-min-mult',
+                                                 1.0)
+
         if not tplargs['minf'] < 1 <= tplargs['maxf']:
             raise ValueError('Invalid pseudo max-fact, min-fact')
 
-        if tplargs['dtau_maxf'] < 1:
-            raise ValueError('Invalid pseudo-dt-max-mult')
+        if tplargs['dtau_maxf'] < 1 < tplargs['dtau_minf']:
+            raise ValueError('Invalid pseudo-dt-max-mult, pseudo-dt-max-mult')
 
         # Limits for the local pseudo-time-step size
         tplargs['dtau_min'] = self._dtau
         tplargs['dtau_max'] = tplargs['dtau_maxf'] * self._dtau
+        tplargs['dtau_min'] = tplargs['dtau_minf'] * self._dtau
 
         # Register a kernel to compute local error
         self.backend.pointwise.register(
@@ -181,8 +232,23 @@ class DualPIPseudoController(BaseDualPseudoController):
             #    self.save_dtau()
 
             for dtau_mat in self.dtau_upts:
-                mat = dtau_mat.get()
-                self.csvwriter.writerow([self.tcurr, self.counter, mat.mean()])
+                mat = dtau_mat.get() # ~ (solution_points, nvars, elements)
+
+                mins = mat.min(axis=(0,2))
+                means = mat.mean(axis=(0,2))
+                maxs = mat.max(axis=(0,2))
+                
+                self.csvwriter.writerow([self.tcurr  , self.counter, 
+                                            mins[0], means[0], maxs[0],
+                                            mins[1], means[1], maxs[1],
+                                         ])
+
+            norm_l2    = self._show_resid(self._idxcurr, self._idxprev, 'l2', 1)
+            norm_l_inf = self._show_resid(self._idxcurr, self._idxprev, 'max', 1)
+            self.csvwriter2.writerow([self.tcurr  , self.counter, 
+                                    norm_l2[0], norm_l_inf[0], 
+                                    norm_l2[1], norm_l_inf[1], 
+                                    ])
 
             self.counter += 1
 
