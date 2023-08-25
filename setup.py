@@ -39,6 +39,7 @@ modules = [
     'pyfr.integrators.dual.pseudo.kernels',
     'pyfr.integrators.std',
     'pyfr.integrators.std.kernels',
+    'pyfr.optimisers'
     'pyfr.partitioners',
     'pyfr.plugins',
     'pyfr.quadrules',

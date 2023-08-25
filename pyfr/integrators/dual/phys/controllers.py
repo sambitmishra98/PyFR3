@@ -11,6 +11,7 @@ class BaseDualController(BaseDualIntegrator):
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
+            self._run_optimsers()
 
     def _accept_step(self, idxcurr):
         self.tcurr += self._dt
@@ -25,6 +26,7 @@ class BaseDualController(BaseDualIntegrator):
 
         # Run any plugins
         self._run_plugins()
+        self._run_optimisers()
 
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []

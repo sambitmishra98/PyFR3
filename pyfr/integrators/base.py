@@ -9,6 +9,7 @@ import numpy as np
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.plugins import get_plugin
+from pyfr.optimisers import get_optimiser
 from pyfr.util import memoize
 
 
@@ -86,6 +87,20 @@ class BaseIntegrator:
 
         return plugins
 
+    def _get_optimisers(self):
+        optimisers = []
+
+        for s in self.cfg.sections():
+            if (m := re.match('(bayes|local)-optimiser-(.+?)(?:-(.+))?$', s)):
+                cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
+
+                args = (ptype, name, self, cfgsect)
+
+                # Instantiate
+                optimisers.append(get_optimiser(*args))
+
+        return optimisers
+
     def _run_plugins(self):
         self.backend.wait()
 
@@ -102,12 +117,26 @@ class BaseIntegrator:
         # Abort if plugins request it
         self._check_abort()
 
+    def _run_optimsers(self):
+        self.backend.wait()
+
+        # Fire off the optimisers
+        for optimiser in self.optimisers:
+            optimiser(self)
+
     @staticmethod
     def get_plugin_data_prefix(name, suffix):
         if suffix:
             return f'plugins/{name}-{suffix}'
         else:
             return f'plugins/{name}'
+
+    @staticmethod
+    def get_optimiser_data_prefix(name, suffix):
+        if suffix:
+            return f'optimisers/{name}-{suffix}'
+        else:
+            return f'optimisers/{name}'
 
     def call_plugin_dt(self, dt):
         ta = self.tlist
