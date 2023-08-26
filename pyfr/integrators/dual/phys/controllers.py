@@ -1,3 +1,5 @@
+from time import perf_counter
+
 from pyfr.integrators.dual.phys.base import BaseDualIntegrator
 
 
@@ -7,6 +9,9 @@ class BaseDualController(BaseDualIntegrator):
 
         # Solution filtering frequency
         self._fnsteps = self.cfg.getint('soln-filter', 'nsteps', '0')
+
+        # Get stats to use for optimisation
+        self.perf_counter_info = []
 
         # Fire off any event handlers if not restarting
         if not self.isrestart:
@@ -31,6 +36,9 @@ class BaseDualController(BaseDualIntegrator):
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
 
+    def _update_performanceinfo(self, walltime):
+        self.performanceinfo.append((self.tcurr, self._dt, walltime))    
+
 
 class DualNoneController(BaseDualController):
     controller_name = 'none'
@@ -42,7 +50,15 @@ class DualNoneController(BaseDualController):
 
         while self.tcurr < t:
             # Take the physical step
-            self.step(self.tcurr, self._dt)
 
+            # If self.perf_counter_info exists, then we need to collect perf.
+            if self.perf_counter_info:
+                tstart = perf_counter()
+                self.step(self.tcurr, self._dt)
+                self._update_performanceinfo(perf_counter() - tstart)
+
+            else: 
+                self.step(self.tcurr, self._dt)
+    
             # We are not adaptive, so accept every step
             self._accept_step(self.pseudointegrator._idxcurr)
