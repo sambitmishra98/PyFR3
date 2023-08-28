@@ -3,7 +3,8 @@ from pyfr.optimisers.base import (BaseOptimiser,
                                   BaseBayesianOptimiser, 
                                   BaseLocalOptimiser,
                                   Cost,
-                                  Modifier)
+                                  Parameter)
+from pyfr.optimisers.binarystepper import BinaryStepper
 from pyfr.optimisers.runtime import RuntimeCost
 from pyfr.optimisers.pmultigrid import PMultigrid
 from pyfr.util import subclass_where

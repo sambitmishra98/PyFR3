@@ -38,19 +38,9 @@ class BaseOptimiser:
 class Cost(BaseOptimiser):
     prefix = 'cost'    
 
-    def process_cost(self, costlist, n_skip = 2, n_capture = 8):
-        if len(costlist) < n_skip + n_capture:
-            return None, None
-        else:
-            captured = costlist[n_skip:]
-            cost = np.mean(captured)
-            cost_err  = np.std(captured)/np.sqrt(len(captured))/cost
 
-            return cost, cost_err
-
-
-class Modifier(BaseOptimiser):
-    prefix = 'modifier'    
+class Parameter(BaseOptimiser):
+    prefix = 'parameter'    
 
 
 class BaseBayesianOptimiser(BaseOptimiser):
