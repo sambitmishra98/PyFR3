@@ -16,6 +16,8 @@ class BaseDualIntegrator(BaseIntegrator):
             self.stepper_nregs, self.stage_nregs, self._dt
         )
 
+        self.performanceinfo = None
+
         # Event handlers for advance_to
         self.plugins = self._get_plugins(initsoln)
         self.optimisers = self._get_optimisers()

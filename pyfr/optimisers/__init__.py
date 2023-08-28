@@ -1,8 +1,9 @@
 
 from pyfr.optimisers.base import (BaseOptimiser, 
                                   BaseBayesianOptimiser, 
-                                  BaseLocalOptimiser)
-from pyfr.optimisers.printcost import PrintCostOptimiser
+                                  BaseLocalOptimiser,
+                                  Cost)
+from pyfr.optimisers.runtime import RuntimeCost
 from pyfr.util import subclass_where
 
 

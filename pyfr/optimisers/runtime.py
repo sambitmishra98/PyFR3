@@ -1,11 +1,13 @@
+import numpy as np
+
 from pyfr.mpiutil import get_comm_rank_root
-from pyfr.optimisers.base import BaseLocalOptimiser, init_csv
+from pyfr.optimisers.base import Cost, init_csv
 
 
-class PrintCostOptimiser(BaseLocalOptimiser):
-    name = 'printcost'
+class RuntimeCost(Cost):
+    name = 'runtime'
     systems = ['*']
-    formulations = ['dual', 'std']
+    formulations = ['dual']
 
     def __init__(self, intg, cfgsect):
         super().__init__(intg, cfgsect)
@@ -21,17 +23,11 @@ class PrintCostOptimiser(BaseLocalOptimiser):
         else:
             self.outf = None
 
-        print('initialised')
+        self.costlist = np.zeros((1, 1))
 
     def __call__(self, intg):
 
-        print('called')
+        # Append performance info to the 1-D matrix
+        self.costlist = np.append(self.costlist, intg.performanceinfo)
 
-
-        # Write the current step number to the output file
-        if self.outf:
-            print('done', sep=',', file=self.outf)
-
-            # Periodically flush to disk
-            if intg.nacptsteps % self.flushsteps == 0:
-                self.outf.flush()
+        print(self.process_cost(self.costlist))

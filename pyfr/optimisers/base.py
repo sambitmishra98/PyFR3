@@ -1,3 +1,5 @@
+import numpy as np
+
 def init_csv(cfg, cfgsect, header, *, filekey='file', headerkey='header'):
     # Determine the file path
     fname = cfg.get(cfgsect, filekey)
@@ -32,6 +34,21 @@ class BaseOptimiser:
     def __call__(self, intg):
         pass
 
+
+class Cost(BaseOptimiser):
+    prefix = 'cost'    
+
+    def process_cost(self, costlist, n_skip = 2, n_capture = 8):
+        if len(costlist) < n_skip + n_capture:
+            return None, None
+        else:
+            captured = costlist[n_skip:]
+            cost = np.mean(captured)
+            cost_err  = np.std(captured)/np.sqrt(len(captured))/cost
+
+            print(f"Lengths are {len(captured)} and {len(costlist)}")
+
+            return cost, cost_err
 
 class BaseBayesianOptimiser(BaseOptimiser):
     prefix = 'bayes'

@@ -10,9 +10,6 @@ class BaseDualController(BaseDualIntegrator):
         # Solution filtering frequency
         self._fnsteps = self.cfg.getint('soln-filter', 'nsteps', '0')
 
-        # Get stats to use for optimisation
-        self.perf_counter_info = []
-
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
@@ -36,9 +33,6 @@ class BaseDualController(BaseDualIntegrator):
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
 
-    def _update_performanceinfo(self, walltime):
-        self.performanceinfo.append((self.tcurr, self._dt, walltime))    
-
 
 class DualNoneController(BaseDualController):
     controller_name = 'none'
@@ -52,11 +46,10 @@ class DualNoneController(BaseDualController):
             # Take the physical step
 
             # If self.perf_counter_info exists, then we need to collect perf.
-            if self.perf_counter_info:
+            if self.performanceinfo is not None:
                 tstart = perf_counter()
                 self.step(self.tcurr, self._dt)
-                self._update_performanceinfo(perf_counter() - tstart)
-
+                self.performanceinfo = perf_counter() - tstart
             else: 
                 self.step(self.tcurr, self._dt)
     
