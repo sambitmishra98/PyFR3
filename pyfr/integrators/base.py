@@ -117,7 +117,7 @@ class BaseIntegrator:
         # Abort if plugins request it
         self._check_abort()
 
-    def _run_optimsers(self):
+    def _run_optimisers(self):
         self.backend.wait()
 
         # Fire off the optimisers
