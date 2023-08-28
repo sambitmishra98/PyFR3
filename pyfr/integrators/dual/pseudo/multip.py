@@ -24,7 +24,14 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self._order = self.level = order = cfg.getint('solver', 'order')
 
         # Get the multigrid cycle
-        self.cycle, self.csteps = zip(*cfg.getliteral(mgsect, 'cycle'))
+        self.cycle, cstepsf = zip(*cfg.getliteral(mgsect, 'cycle'))
+
+        self._maxniters = cfg.getint(sect, 'pseudo-niters-max', 0)
+        self._minniters = cfg.getint(sect, 'pseudo-niters-min', 0)
+
+        # Create a list of smooothing steps for each cycle iteration
+        self.cstepsf_list = [cstepsf for _ in range(self._maxniters)]
+
         self._fgen = np.random.default_rng(0)
 
         self.levels = sorted(set(self.cycle), reverse=True)
@@ -47,9 +54,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         # Multigrid pseudo-time steps
         dtau = cfg.getfloat(sect, 'pseudo-dt')
         self.dtauf = cfg.getfloat(mgsect, 'pseudo-dt-fact', 1.0)
-
-        self._maxniters = cfg.getint(sect, 'pseudo-niters-max', 0)
-        self._minniters = cfg.getint(sect, 'pseudo-niters-min', 0)
 
         # Get the multigrid pseudostepper and pseudocontroller classes
         pn = cfg.get(sect, 'pseudo-scheme')
@@ -290,7 +294,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
     def pseudo_advance(self, tcurr):
         # Multigrid levels and step counts
-        cycle, cstepsf = self.cycle, self.csteps
+        cycle = self.cycle
 
         # Set time step and current stepper coefficients for all levels
         for l in self.levels:
@@ -299,17 +303,17 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         self.tcurr = tcurr
 
-        for i in range(self._maxniters):
+        for i, cstepsf in enumerate(self.cstepsf_list):
 
             # Choose either ⌊c⌋ and ⌈c⌉ in a way that the average is c
-            csteps = [self._fgen.choice([np.floor(c), np.ceil(c)], 
-                                       p=[c % 1, 1 - c % 1]) for c in cstepsf]
+            csteps = [int(self._fgen.choice([np.floor(c), np.ceil(c)], 
+                                       p=[1 - c % 1, c % 1])) for c in cstepsf]
 
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
                 # Set the number of smoothing steps at each level
-                self.pintg.maxniters = self.pintg.minniters = int(n)
+                self.pintg.maxniters = self.pintg.minniters = n
 
                 self.pintg.pseudo_advance(tcurr)
 
