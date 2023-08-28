@@ -30,7 +30,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self._minniters = cfg.getint(sect, 'pseudo-niters-min', 0)
 
         # Create a list of smooothing steps for each cycle iteration
-        self.cstepsf_list = [cstepsf for _ in range(self._maxniters)]
+        self.cstepsf_list = [list(cstepsf) for _ in range(self._maxniters)]
 
         self._fgen = np.random.default_rng(0)
 

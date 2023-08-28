@@ -95,7 +95,7 @@ class BaseIntegrator:
         optimisers = []
 
         for s in self.cfg.sections():
-            if (m := re.match('(bayes|local|cost)-optimiser-(.+?)(?:-(.+))?$', s)):
+            if (m := re.match('(bayes|local|cost|modifier)-optimiser-(.+?)(?:-(.+))?$', s)):
                 cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
 
                 args = (ptype, name, self, cfgsect)

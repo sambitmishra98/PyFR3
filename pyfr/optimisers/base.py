@@ -46,9 +46,12 @@ class Cost(BaseOptimiser):
             cost = np.mean(captured)
             cost_err  = np.std(captured)/np.sqrt(len(captured))/cost
 
-            print(f"Lengths are {len(captured)} and {len(costlist)}")
-
             return cost, cost_err
+
+
+class Modifier(BaseOptimiser):
+    prefix = 'modifier'    
+
 
 class BaseBayesianOptimiser(BaseOptimiser):
     prefix = 'bayes'
