@@ -1,8 +1,11 @@
 
 from pyfr.optimisers.base import (BaseOptimiser, 
-                                  BaseBayesianOptimiser, 
+                                  BaseGlobalOptimiser, 
                                   BaseLocalOptimiser)
 from pyfr.optimisers.binarystepper import BinaryStepper
+from pyfr.optimisers.bayesianoptimiser import BayesianOptimiser
+from pyfr.optimisers.botorch import BoTorch
+
 from pyfr.util import subclass_where
 
 def get_optimiser(prefix, name, *args, **kwargs):

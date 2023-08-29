@@ -47,6 +47,7 @@ class BaseOptimiser:
 
     def _post_call(self):
         self.prev_costs = self.costs
+        self.costlists = {cost_name: np.zeros((1, 1)) for cost_name in self.costlists}
 
     @property
     def costs(self):
@@ -62,7 +63,6 @@ class BaseOptimiser:
             if cost_name == 'runtime':
 
                 def process_cost(self, n_skip = 1, n_capture = 4):
-                    print('process_cost')
                     if len(self.costlists[cost_name]) < n_skip + n_capture:
                         return None, None
                     else:
@@ -84,12 +84,15 @@ class BaseOptimiser:
     def initialise_parameters_calls(self, intg):
 
         for parameter_name in self.parameter_names:
-            if parameter_name == 'pmultigrid':
-                def get_parameter(self, intg=intg):
-                    return intg.pseudointegrator.cstepsf_list[0][-1]
+            if parameter_name.startswith('pmultigrid-'):
+                index = int(parameter_name.split('-')[1])
+                
+                def get_parameter(self, intg=intg, index=index):
+                    return intg.pseudointegrator.cstepsf_list[0][index]
 
-                def set_parameter(self, y, intg=intg):
-                    intg.pseudointegrator.cstepsf_list[0][-1] = y
+                def set_parameter(self, y, intg=intg, index=index):
+                    for i in range(len(intg.pseudointegrator.cstepsf_list)):
+                        intg.pseudointegrator.cstepsf_list[i][index] = y
 
                 self.get_parameters[parameter_name] = get_parameter
                 self.set_parameters[parameter_name] = set_parameter
@@ -103,13 +106,16 @@ class BaseOptimiser:
     
     @parameters.setter
     def parameters(self, ys):
+        print('we are setting the parameters')
+        print(f'ys: {ys} and parameter_names: {self.parameter_names}')
         for parameter_name, y in zip(self.parameter_names,ys):
+
             print(parameter_name, y)
             self.set_parameters[parameter_name](self, y)
 
 
-class BaseBayesianOptimiser(BaseOptimiser):
-    prefix = 'bayes'
+class BaseGlobalOptimiser(BaseOptimiser):
+    prefix = 'global'
     
     
 class BaseLocalOptimiser(BaseOptimiser):
