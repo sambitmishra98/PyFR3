@@ -91,14 +91,11 @@ class BaseIntegrator:
 
         # Create counter for storing any performance information
         self.performanceinfo = []
-        self.costs = {}
-        self.get_parameters = {}
-        self.set_parameters = {}
         
         optimisers = []
 
         for s in self.cfg.sections():
-            if (m := re.match('(bayes|local|cost|parameter)-optimiser-(.+?)(?:-(.+))?$', s)):
+            if (m := re.match('(bayes|local)-optimiser-(.+?)(?:-(.+))?$', s)):
                 cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
 
                 args = (ptype, name, self, cfgsect)

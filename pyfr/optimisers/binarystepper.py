@@ -11,22 +11,20 @@ class BinaryStepper(BaseLocalOptimiser):
     def __init__(self, intg, cfgsect):
         super().__init__(intg, cfgsect)
 
-        self.cost = intg.costs[self.cfg.get(cfgsect, 'cost')]        
-        self.get_param = intg.get_parameters[self.cfg.get(cfgsect, 'parameter')]        
-        self.set_param = intg.set_parameters[self.cfg.get(cfgsect, 'parameter')]
-
-        self.prev_cost = 0
-                
     def __call__(self, intg):
+        super().__call__(intg)
 
-        if self.cost()[0] is None:
+        print(self.costs['runtime'][0])
+
+        if self.costs['runtime'][0] is None:
             return
         
-        if self.prev_cost > self.cost()[0]:
-            self.set_param(intg, self.get_param(intg) - 0.1)
+        pmg = self.parameters['pmultigrid']
+        if self.prev_costs['runtime'][0] > self.costs['runtime'][0]:
+            self.parameters = [pmg + 0.1,]
         else:
-            self.set_param(intg, self.get_param(intg) + 0.1)
-
-        self.prev_cost = self.cost()[0]
+            self.parameters = [pmg - 0.1,]
             
-        print('BinaryStepper: ', self.cost()[0], self.get_param(intg))
+        print(self.parameters['pmultigrid'])
+        
+        self._post_call()

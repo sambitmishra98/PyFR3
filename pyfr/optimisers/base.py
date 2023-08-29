@@ -31,16 +31,81 @@ class BaseOptimiser:
 
         self.suffix = suffix
 
+        cost_names = self.cfg.get(cfgsect, 'cost').split()
+        self.costlists = {cost_name: np.zeros((1, 1)) for cost_name in cost_names}
+        self.process_costs = {}
+        self.prev_costs = {cost_name: np.zeros((1, 1)) for cost_name in cost_names}
+        self.initialise_costs(cost_names)
+
+        self.parameter_names = self.cfg.get(cfgsect, 'parameter').split()
+        self.get_parameters = {}
+        self.set_parameters = {}
+        self.initialise_parameters_calls(intg)
+
     def __call__(self, intg):
-        pass
+        self.update_costlists(intg)
 
+    def _post_call(self):
+        self.prev_costs = self.costs
 
-class Cost(BaseOptimiser):
-    prefix = 'cost'    
+    @property
+    def costs(self):
+        costs = {}
+        for cost_name in self.costlists:
+            costs[cost_name] = self.process_costs[cost_name](self)
+        return costs
 
+    def initialise_costs(self, cost_names):
 
-class Parameter(BaseOptimiser):
-    prefix = 'parameter'    
+        for cost_name in cost_names:
+
+            if cost_name == 'runtime':
+
+                def process_cost(self, n_skip = 1, n_capture = 4):
+                    print('process_cost')
+                    if len(self.costlists[cost_name]) < n_skip + n_capture:
+                        return None, None
+                    else:
+                        captured = self.costlists[cost_name][n_skip:]
+                        cost = np.mean(captured)
+                        cost_err  = np.std(captured)/np.sqrt(len(captured))/cost
+
+                        return cost, cost_err
+
+                self.process_costs[cost_name] = process_cost
+
+    def update_costlists(self, intg):
+        for cost_name in self.costlists:
+            if cost_name == 'runtime':
+                self.costlists[cost_name] = np.append(self.costlists[cost_name],
+                                                      intg.performanceinfo)
+        print(self.costlists)
+
+    def initialise_parameters_calls(self, intg):
+
+        for parameter_name in self.parameter_names:
+            if parameter_name == 'pmultigrid':
+                def get_parameter(self, intg=intg):
+                    return intg.pseudointegrator.cstepsf_list[0][-1]
+
+                def set_parameter(self, y, intg=intg):
+                    intg.pseudointegrator.cstepsf_list[0][-1] = y
+
+                self.get_parameters[parameter_name] = get_parameter
+                self.set_parameters[parameter_name] = set_parameter
+                
+    @property
+    def parameters(self):
+        parameters = {}
+        for parameter_name in self.parameter_names:
+            parameters[parameter_name] = self.get_parameters[parameter_name](self)
+        return parameters
+    
+    @parameters.setter
+    def parameters(self, ys):
+        for parameter_name, y in zip(self.parameter_names,ys):
+            print(parameter_name, y)
+            self.set_parameters[parameter_name](self, y)
 
 
 class BaseBayesianOptimiser(BaseOptimiser):
