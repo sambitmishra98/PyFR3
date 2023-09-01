@@ -1,6 +1,9 @@
+from collections import defaultdict
+
 import numpy as np
 
 from pyfr.integrators.dual.pseudo.base import BaseDualPseudoIntegrator
+from pyfr.util import memoize
 from pyfr.mpiutil import get_comm_rank_root, mpi
 
 
@@ -13,6 +16,9 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
 
         # Stats on the most recent step
         self.pseudostepinfo = []
+
+        # Stats on every multip level for the most recent step
+        self.pseudostep_multipinfo = []
 
     def convmon(self, i, minniters, dt_fac=1):
         if i >= minniters - 1:
@@ -62,6 +68,8 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostepinfo(self, niters, resid):
         self.pseudostepinfo.append((self.ntotiters, niters, resid))
 
+    def _update_pseudostep_multipinfo(self, tcurr, *resids):
+        self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'
@@ -140,13 +148,47 @@ class DualPIPseudoController(BaseDualPseudoController):
                     )
                 )
 
+        self._init_isolate_mats()
+
         self.backend.commit()
 
     def localerrest(self, errbank):
         self.backend.run_kernels(self.pintgkernels['localerrest', errbank])
 
+    def _init_isolate_mats(self):
+        self.isolatemats = defaultdict(list)
+        cmat = lambda m: self.backend.const_matrix(m, tags={'align'})
+
+        order = self.modes_nregs - 1
+
+        for etype in self.system.ele_types:
+            b = self.system.ele_map[etype].basis.ubasis
+            for level_to_isolate in range(order+1):
+                self.isolatemats[order, level_to_isolate].append(cmat(b.isolate(level_to_isolate)))
+
+    @memoize
+    def register_isolate(self, l1, l1reg1, idx, idy, l1reg2):
+        isolatek = []
+        for i, a in enumerate(self.isolatemats[l1, idx, 0]):
+            b = self.system.ele_banks[i][l1reg1]
+            c = self.system.ele_banks[i][l1reg2]
+            isolatek.append(self.backend.kernel('mul', a, b, out=c))
+
+        return isolatek
+
+    def isolateall(self, reg_to_isolate, regidxs_to_isolate_into):
+        order = self.modes_nregs - 1
+
+        for idx, mode_regid in enumerate(regidxs_to_isolate_into):
+            self.backend.run_kernels(self.register_isolate(order, 
+                                                           reg_to_isolate, 
+                                                           idx, 0,  
+                                                           mode_regid))
+
+
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
+        order = self.modes_nregs - 1
 
         for i in range(self.maxniters):
             # Take the step
@@ -155,3 +197,14 @@ class DualPIPseudoController(BaseDualPseudoController):
 
             if self.convmon(i, self.minniters):
                 break
+
+        # Isolate modes of current and previous solutions idxcurr and idxprev
+        self.isolateall(self._idxprev, self._prev_modes_regidx)
+        self.isolateall(self._idxcurr, self._curr_modes_regidx)
+
+        resids = []
+        for ii in range(order+1):
+            resids.append(self._resid(self._curr_modes_regidx[ii],
+                                      self._prev_modes_regidx[ii], 1))
+
+        self._update_pseudostep_multipinfo(tcurr, *resids)

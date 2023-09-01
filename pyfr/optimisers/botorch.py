@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from botorch.models import SingleTaskGP
 from botorch.fit import fit_gpytorch_model
 
+import csv
+
 from botorch.acquisition import ExpectedImprovement
 from botorch.acquisition import qKnowledgeGradient
 
@@ -34,20 +36,36 @@ class BoTorch(BaseGlobalOptimiser):
 
         print(self.costs['runtime'][0])
 
+        with open('data.csv', 'w', newline='') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            
+            # Write header
+            # Each m is a list of 4 elements, so we need to store as m0-p, m0-u, m0-v, m1-p, m1-u, etc.
+            csvwriter.writerow(['iter', 'tcurr', 'm0-p', 'm0-u', 'm0-v',
+                                                 'm1-p', 'm1-u', 'm1-v',
+                                                 'm2-p', 'm2-u', 'm2-v',
+                                                 'm3-p', 'm3-u', 'm3-v',])
+            
+            # Write data
+            for row in intg.pseudointegrator.pintg.pseudostep_multipinfo:
+                new_row = row[0:2]
+                for m in row[2:]:
+                    new_row += m
+                csvwriter.writerow(new_row)
+
         if self.costs['runtime'][0] is None:
             return
 
-        self._store_past_in_dataset()
-        self._create_and_fit_GP_model()
-        # self._plot_GP_model()
+        #self._store_past_in_dataset()
+        #self._create_and_fit_GP_model()
+        
+        #self.parameters = self._get_next_candidate()
+        #print(f'{self.parameters = }')
 
-        self.parameters = self._get_next_candidate()
-        print(f'{self.parameters = }')
+        #print(f'dataset: {self.dataset}')
 
-        print(f'dataset: {self.dataset}')
-
-        self._post_call()
-        print('NEW CYCLE-0: ', intg.pseudointegrator.cstepsf_list)
+        #self._post_call()
+        #print('NEW CYCLE-0: ', intg.pseudointegrator.cstepsf_list)
 
     def _plot_GP_model(self):
         # Generate test points
@@ -124,7 +142,7 @@ class BoTorch(BaseGlobalOptimiser):
                                                      self.bounds[1, :])]
 
         res = minimize(lambda x: -acq_function(torch.tensor([x])).item(), 
-               x0=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], bounds=bounds_list)
+               x0=[1.1, 0.2, 0.3, 0.4, 0.5, 0.6, 1.7], bounds=bounds_list)
 
         return res.x.tolist()
     
