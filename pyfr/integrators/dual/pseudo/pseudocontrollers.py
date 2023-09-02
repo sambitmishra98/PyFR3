@@ -103,7 +103,7 @@ class DualPIPseudoController(BaseDualPseudoController):
         tplargs = {'nvars': self.system.nvars}
 
         # Error tolerance
-        tplargs['atol'] = self.cfg.getfloat(sect, 'atol')
+        tplargs['atol'] = self.cfg.getfloat(sect, 'atol', 1e-10)
 
         # PI control values
         sord = self.pseudo_stepper_order
@@ -115,12 +115,14 @@ class DualPIPseudoController(BaseDualPseudoController):
         tplargs['minf'] = self.cfg.getfloat(sect, 'min-fact', 0.98)
         tplargs['saff'] = self.cfg.getfloat(sect, 'safety-fact', 0.8)
         tplargs['dtau_maxf'] = self.cfg.getfloat(sect, 'pseudo-dt-max-mult',
-                                                 3.0)
+                                                 10000.0)
+        tplargs['dtau_minf'] = self.cfg.getfloat(sect, 'pseudo-dt-min-mult',
+                                                 0.0001)
 
         if not tplargs['minf'] < 1 <= tplargs['maxf']:
             raise ValueError('Invalid pseudo max-fact, min-fact')
 
-        if tplargs['dtau_maxf'] < 1:
+        if tplargs['dtau_maxf'] < 1 <= tplargs['dtau_minf']:
             raise ValueError('Invalid pseudo-dt-max-mult')
 
         # Limits for the local pseudo-time-step size
