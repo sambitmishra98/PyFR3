@@ -56,7 +56,7 @@ class PIController(BaseLocalOptimiser):
             self.PI_towards_aim(aim)
 
         self._post_call()
-        print('NEW CYCLE-0: ', [intg.pseudointegrator.cstepsf_list[i][0] for i in range(len(intg.pseudointegrator.cstepsf_list))])
+        print('ζ: ', intg.pseudointegrator.system.ac_zeta)
 
     def PI_towards_aim(self, aim):
         

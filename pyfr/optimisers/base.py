@@ -113,12 +113,26 @@ class BaseOptimiser:
             if parameter_name.startswith('pmultigrid-'):
                 index = int(parameter_name.split('-')[1])
                 
-                def get_parameter(self, intg=intg, index=index):
+                @staticmethod
+                def get_parameter(intg=intg, index=index):
                     return intg.pseudointegrator.cstepsf_list[0][index]
 
-                def set_parameter(self, y, intg=intg, index=index):
+                @staticmethod
+                def set_parameter(y, intg=intg, index=index):
                     for i in range(len(intg.pseudointegrator.cstepsf_list)):
                         intg.pseudointegrator.cstepsf_list[i][index] = y
+
+                self.get_parameters[parameter_name] = get_parameter
+                self.set_parameters[parameter_name] = set_parameter
+                
+            elif parameter_name == 'ac-zeta':
+                @staticmethod
+                def get_parameter(intg=intg):
+                    return intg.pseudointegrator.pintg.system.ac_zeta
+
+                @staticmethod
+                def set_parameter(y, intg=intg):
+                    intg.pseudointegrator.pintg.system.ac_zeta = y
 
                 self.get_parameters[parameter_name] = get_parameter
                 self.set_parameters[parameter_name] = set_parameter
@@ -127,7 +141,7 @@ class BaseOptimiser:
     def parameters(self):
         parameters = {}
         for parameter_name in self.parameter_names:
-            parameters[parameter_name] = self.get_parameters[parameter_name](self)
+            parameters[parameter_name] = self.get_parameters[parameter_name]()
         return parameters
     
     @parameters.setter
@@ -137,7 +151,7 @@ class BaseOptimiser:
         for parameter_name, y in zip(self.parameter_names,ys):
 
             print(parameter_name, y)
-            self.set_parameters[parameter_name](self, y)
+            self.set_parameters[parameter_name](y)
 
     # If only one parameter, then we can just use the following setter and getter
     @property
