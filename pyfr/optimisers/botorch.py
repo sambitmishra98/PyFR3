@@ -28,13 +28,19 @@ class BoTorch(BaseGlobalOptimiser):
         self.bounds = torch.tensor(bounds).T
         print(f'{self.bounds = }')
 
-
         self.dataset = {'parameters': [], 'costs': []}
 
     def __call__(self, intg):
         super().__call__(intg)
 
-        print(self.costs['runtime'][0])
+        # Currently, BO works with only one cost
+        if len(self.costs) > 1:
+            raise ValueError("More than one cost function specified.")
+
+        # I have mentioned runtime as the cost function in the config file
+        # I want to be more generic, since we only have one cost
+        
+        print(self.costs)
 
         with open('data.csv', 'w', newline='') as csvfile:
             csvwriter = csv.writer(csvfile)

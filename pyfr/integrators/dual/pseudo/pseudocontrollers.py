@@ -148,7 +148,7 @@ class DualPIPseudoController(BaseDualPseudoController):
                     )
                 )
 
-        self._init_isolate_mats()
+        #self._init_isolate_mats()
 
         self.backend.commit()
 
@@ -199,12 +199,10 @@ class DualPIPseudoController(BaseDualPseudoController):
                 break
 
         # Isolate modes of current and previous solutions idxcurr and idxprev
-        self.isolateall(self._idxprev, self._prev_modes_regidx)
-        self.isolateall(self._idxcurr, self._curr_modes_regidx)
-
-        resids = []
-        for ii in range(order+1):
-            resids.append(self._resid(self._curr_modes_regidx[ii],
-                                      self._prev_modes_regidx[ii], 1))
-
-        self._update_pseudostep_multipinfo(tcurr, *resids)
+        #self.isolateall(self._idxprev, self._prev_modes_regidx)
+        #self.isolateall(self._idxcurr, self._curr_modes_regidx)
+        #resids = []
+        #for ii in range(order+1):
+        #    resids.append(self._resid(self._curr_modes_regidx[ii],
+        #                              self._prev_modes_regidx[ii], 1))
+        #self._update_pseudostep_multipinfo(tcurr, *resids)

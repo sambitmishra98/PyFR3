@@ -3,6 +3,7 @@ from pyfr.optimisers.base import (BaseOptimiser,
                                   BaseGlobalOptimiser, 
                                   BaseLocalOptimiser)
 from pyfr.optimisers.binarystepper import BinaryStepper
+from pyfr.optimisers.PIController import PIController
 from pyfr.optimisers.bayesianoptimiser import BayesianOptimiser
 from pyfr.optimisers.botorch import BoTorch
 

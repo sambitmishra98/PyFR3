@@ -212,6 +212,8 @@ class IntegratePlugin(BaseSolnPlugin):
             # Evaluate the integation expressions
             iintex = self._eval_exprs(intg)
 
+            intg.integral = iintex
+
             # Reduce and output if we're the root rank
             if rank != root:
                 comm.Reduce(iintex, None, op=self.mpi_op, root=root)

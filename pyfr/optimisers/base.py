@@ -56,6 +56,15 @@ class BaseOptimiser:
             costs[cost_name] = self.process_costs[cost_name](self)
         return costs
 
+    # If only one cost, then we can just use the following getter
+    @property
+    def cost(self):
+        return self.costs[list(self.costlists.keys())[0]]
+
+    @property
+    def prev_cost(self):
+        return self.prev_costs[list(self.costlists.keys())[0]]
+    
     def initialise_costs(self, cost_names):
 
         for cost_name in cost_names:
@@ -74,11 +83,28 @@ class BaseOptimiser:
 
                 self.process_costs[cost_name] = process_cost
 
+            elif cost_name == 'integral-absolute-divergence':
+
+                def process_cost(self, n_skip = 1, n_capture = 4):
+                    if len(self.costlists[cost_name]) < n_skip + n_capture:
+                        return None, None
+                    else:
+                        captured = self.costlists[cost_name][n_skip:]
+                        cost = np.mean(captured)
+                        cost_err  = np.std(captured)/np.sqrt(len(captured))/cost
+
+                        return cost, cost_err
+
+                self.process_costs[cost_name] = process_cost
+
     def update_costlists(self, intg):
         for cost_name in self.costlists:
             if cost_name == 'runtime':
                 self.costlists[cost_name] = np.append(self.costlists[cost_name],
                                                       intg.performanceinfo)
+            elif cost_name == 'integral-absolute-divergence':
+                self.costlists[cost_name] = np.append(self.costlists[cost_name],
+                                                      intg.integral)
         print(self.costlists)
 
     def initialise_parameters_calls(self, intg):
@@ -107,11 +133,20 @@ class BaseOptimiser:
     @parameters.setter
     def parameters(self, ys):
         print('we are setting the parameters')
-        print(f'ys: {ys} and parameter_names: {self.parameter_names}')
+        print(f'parameter: {self.parameter_names} --> {ys}')
         for parameter_name, y in zip(self.parameter_names,ys):
 
             print(parameter_name, y)
             self.set_parameters[parameter_name](self, y)
+
+    # If only one parameter, then we can just use the following setter and getter
+    @property
+    def parameter(self):
+        return self.parameters[self.parameter_names[0]]
+    
+    @parameter.setter
+    def parameter(self, y):
+        self.parameters = [y,]
 
 
 class BaseGlobalOptimiser(BaseOptimiser):
