@@ -200,17 +200,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         return projk
 
-    @memoize
-    def dtauproject(self, l1, l2):
-        projk = []
-        for i, a in enumerate(self.projmats[l1, l2]):
-            b = self.pintgs[l1].dtau_upts[i]
-            c = self.pintgs[l2].dtau_upts[i]
-            projk.append(self.backend.kernel('mul', a, b, out=c,
-                                             alpha=self.dtauf))
-
-        return projk
-
     def restrict(self, l1, l2):
         l1idxcurr = self.pintgs[l1]._idxcurr
         l2idxcurr = self.pintgs[l2]._idxcurr
@@ -230,10 +219,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             l1src = rtemp
 
         self.backend.run_kernels(self.mgproject(l1, l1src, l2, l2dst))
-
-        # Project local dtau field to lower multigrid levels
-        if self.pintgs[self._order].pseudo_controller_needs_lerrest:
-            self.backend.run_kernels(self.dtauproject(l1, l2))
 
         # rtemp = R = -∇·f - dQ/dt
         self.pintg._rhs_with_dts(self.tcurr, l1idxcurr, rtemp, mg_add=False)

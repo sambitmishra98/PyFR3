@@ -64,5 +64,3 @@ class PIController(BaseLocalOptimiser):
         f = (p_val - self.parameter)/self.parameter
         factor = np.clip(f*self._saff, self._minf, self._maxf)
         self.parameter = self.parameter*factor
-
-        
