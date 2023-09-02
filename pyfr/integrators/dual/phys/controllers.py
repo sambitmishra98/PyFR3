@@ -71,29 +71,108 @@ class DualNoneController(BaseDualController):
             self._accept_step(self._dt, idxcurr)
 
 
-class DualPIController(BaseDualController):
-    controller_name = 'pi'
+class DualBinaryController(BaseDualController):
+    controller_name = 'binary'
     controller_has_variable_dt = True
-
-    _atol = 1
-    _rtol = 1
-
-    _norm = 'l2'    
 
     flag = 0         
     cost = 0
-    the_factor = 1.01
 
     costs = []
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self._clen = self.cfg.getint('solver-time-integrator', 'cost-len', 30)
+
+        self.csvfile = open('dual_pi_controller.csv', 'w', newline='')
+        self.csvwriter = csv.writer(self.csvfile)
+        # Write header row
+        self.csvwriter.writerow(['t', 'dt', 'cost', 'slope'])
+
+        self.costs = deque(maxlen=self._clen) 
+                
+    def compute_slope(self):
+        x = np.array(range(len(self.costs)))
+        y = np.array(self.costs)
+        n = len(self.costs)
+
+        b = (n * np.sum(x*y) - np.sum(x) * np.sum(y)) / \
+            (n * np.sum(x**2) - np.sum(x)**2)
+        return b
+    
+    def advance_to(self, t):
+        if t < self.tcurr:
+            raise ValueError('Advance time is in the past')
+
+        # Constants
+
+        while self.tcurr < t:
+
+            # Decide on the time step
+            self.adjust_step(t)
+
+            # Decide on the pseudo time step
+            self.pseudointegrator.adjust_pseudo_step(self._dt)
+
+            # Take the physical step
+            start = perf_counter()
+            idxcurr = self.step(self.tcurr, self._dt)
+            cost = (perf_counter() - start) / self._dt
+
+            self.costs.append(cost)
+
+            fac = 1.
+
+            if len(self.costs) == self._clen:
+                slope = self.compute_slope()
+
+                if slope > 0:
+                    fac = 0.99
+                else:
+                    fac = 1.01
+                    
+            else:
+                slope = 1.0
+
+            self._accept_step(self._dt, idxcurr)
+
+            # Print with rounded to 3 decimal places
+            self.csvwriter.writerow([f"{self.tcurr:.5f}",
+                                    f"{self._dt:.5f}",
+                                    f"{cost:.5f}",
+                                    f"{slope:.5f}",
+                                    ])
+            self.csvfile.flush()  # to make sure the log is written immediately
+
+            self.cost = cost            
+
+            # Skip the first time we are asked to change the time step
+            self._dt_in = fac*self._dt
+
+class DualPIController(BaseDualController):
+    controller_name = 'pi'
+    controller_has_variable_dt = True
+
+    flag = 0         
+    cost = 0
+
+    costs = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._atol = self.cfg.getfloat('solver-time-integrator', 'pi-atol', 0.001)
+        self._rtol = self.cfg.getfloat('solver-time-integrator', 'pi-rtol', 1)
+        self._norm = self.cfg.get('solver-time-integrator', 'pi-norm', 'l2')
+        self._clen = self.cfg.getint('solver-time-integrator', 'pi-cost-len', 30)
+
         self.csvfile = open('dual_pi_controller.csv', 'w', newline='')
         self.csvwriter = csv.writer(self.csvfile)
         # Write header row
         self.csvwriter.writerow(['t', 'dt', 'cost', 'slope', 'err'])
 
-        self.costs = deque(maxlen=30) 
+        self.costs = deque(maxlen=self._clen) 
                 
     def _errest(self, rcurr, rprev, rerr):
         comm, rank, root = get_comm_rank_root()
@@ -164,16 +243,21 @@ class DualPIController(BaseDualController):
             
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)
+            self.prev_err = err
 
-            if len(self.costs) == 30:
+            fac = 1.
+
+            if len(self.costs) == self._clen:
                 slope = self.compute_slope()
-                if slope < 0:  # Costs are decreasing
-                    fac = self.the_factor
-                else:  # Costs are increasing or stable
-                    fac = 1/self.the_factor
+
+                if slope > 0:
+                    fac = 0.99
+                else:
+                    fac = 1.01
+                
+                    
             else:
                 slope = 1.0
-                fac = 1.0
 
             self._accept_step(self._dt, idxcurr)
 
