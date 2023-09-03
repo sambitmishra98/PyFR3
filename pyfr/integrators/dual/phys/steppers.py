@@ -24,6 +24,11 @@ class BaseDIRKStepper(BaseDualStepper):
 
     def step(self, t, dt):
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
+
+            # If self.parameters exists, then 
+            if hasattr(self, 'parameters'):
+                self.pseudointegrator.parameters = self.stage_parameters(s)
+
             self.pseudointegrator.init_stage(s, sc, dt)
             self.pseudointegrator.pseudo_advance(t + dt*tc)
             self.pseudointegrator.finalise_stage(s, t + dt*tc)
@@ -34,6 +39,9 @@ class BaseDIRKStepper(BaseDualStepper):
 
         self.pseudointegrator.store_current_soln()
 
+    def stage_parameters(self, s):
+        return {param_name: arr[s, :, :] if arr.shape[0] > 1 else arr[0, :, :]
+                for param_name, arr in self.parameters.items()}
 
 class DualBackwardEulerStepper(BaseDIRKStepper):
     stepper_name = 'backward-euler'

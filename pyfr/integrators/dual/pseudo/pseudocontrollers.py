@@ -71,6 +71,34 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostep_multipinfo(self, tcurr, *resids):
         self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
+    def extract_parameters(self, i):
+        if not hasattr(self, 'parameters'):
+            return {}
+        
+        
+        parameters = {}
+        
+        for param_name, arr in self.parameters.items():
+            if arr.shape[1] == 1:
+                i = 0
+
+            fin = arr[0,i]
+
+            # If fin is not a float, then something is wrong
+            if not isinstance(fin, float):
+                raise ValueError('Invalid parameter value')
+
+            parameters[param_name] = arr[0, i]
+
+        return parameters
+
+    def update_parameters(self, params):
+        
+        for param_name, arr in params.items():
+            if param_name == 'ac-zeta':
+                self.system.ac_zeta = arr
+
+
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'
     pseudo_controller_needs_lerrest = False
@@ -79,6 +107,10 @@ class DualNonePseudoController(BaseDualPseudoController):
         self.tcurr = tcurr
 
         for i in range(self.maxniters):
+
+            params = self.extract_parameters(i)
+            self.update_parameters(params)
+
             # Take the step
             self._idxcurr, self._idxprev = self.step(self.tcurr)
 
@@ -190,9 +222,13 @@ class DualPIPseudoController(BaseDualPseudoController):
 
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
-        order = self.modes_nregs - 1
+        #order = self.modes_nregs - 1
 
         for i in range(self.maxniters):
+
+            params = self.extract_parameters(i)
+            self.update_parameters(params)
+
             # Take the step
             self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
             self.localerrest(self._idxerr)

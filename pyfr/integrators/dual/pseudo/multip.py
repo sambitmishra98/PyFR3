@@ -297,6 +297,8 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
+                self.pintg.parameters = self.level_pseudoiteration_parameters(l, i)
+                
                 # Set the number of smoothing steps at each level
                 self.pintg.maxniters = self.pintg.minniters = n
 
@@ -313,6 +315,23 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             # Convergence monitoring
             if self.mg_convmon(self.pintg, i, self._minniters):
                 break
+
+    def level_pseudoiteration_parameters(self, l, i):
+
+        if not hasattr(self, 'parameters'):
+            return {}
+
+        parameters = {}
+        
+        for param_name, arr in self.parameters.items():
+            if arr.shape[0] == 1:
+                l = 0
+            if arr.shape[1] == 1:
+                i = 0
+
+            parameters[param_name] = arr[l:l+1, i:i+1]
+
+        return parameters
 
     def collect_stats(self, stats):
         # Collect the stats for each level
