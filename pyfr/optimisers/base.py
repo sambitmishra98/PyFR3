@@ -132,11 +132,12 @@ class BaseOptimiser:
 
                 @staticmethod
                 def set_parameter(y, intg=intg):
-                    intg.pseudointegrator.pintg.system.ac_zeta = y
+                    for p in intg.pseudointegrator.pintgs:
+                        p.system.ac_zeta = y
 
                 self.get_parameters[parameter_name] = get_parameter
                 self.set_parameters[parameter_name] = set_parameter
-                
+
     @property
     def parameters(self):
         parameters = {}
