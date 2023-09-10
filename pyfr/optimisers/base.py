@@ -73,7 +73,34 @@ class BaseOptimiser:
                 else:
                     pseudo_iterations = 1
 
+                intg.parameters[parameter_name] = 2.5 * np.ones((stages, 
+                                                            levels,
+                                                            pseudo_iterations, 
+                                                            ))
 
+                # Let us instead have the numbers from 1 to largest, so that we can monitor indices
+                intg.parameters[parameter_name] = np.arange(1.0, 1.0 + stages*levels*pseudo_iterations).reshape((stages, 
+                                                            levels,
+                                                            pseudo_iterations, 
+                                                            ))
+                
+            if parameter_name.startswith('psmoothing-'):
+                index = int(parameter_name.split('-')[1])
+
+                if default_vary_with_levels:
+                    levels = self.cfg.getint('solver', 'order') + 1
+                else:
+                    levels = 1
+
+                if default_vary_with_stages:
+                    stages = 3
+                else:
+                    stages = 1
+
+                if default_vary_with_pseudo_iterations:
+                    pseudo_iterations = self.cfg.getint('solver-time-integrator', 'pseudo-niters-max')
+                else:
+                    pseudo_iterations = 1
 
                 intg.parameters[parameter_name] = 2.5 * np.ones((stages, 
                                                             levels,
@@ -151,38 +178,18 @@ class BaseOptimiser:
             elif cost_name == 'integral-absolute-divergence':
                 self.costlists[cost_name] = np.append(self.costlists[cost_name],
                                                       intg.integral)
+            elif cost_name == 'modalresidualnorms':
+                # Get modal residuals from an error register 
+                # as an [order+1 × order+1] matrix
+                # And plot all of them
+                # We need [level, csteps, (1/r)×(∂r/(i∂τ))]
+
+                self.costlists[cost_name] = np.append(self.costlists[cost_name],
+                                                      intg.resnorms)
+
+            else:
+                raise ValueError(f'Cost {cost_name} is not recognised')
         print(self.costlists)
-
-    def initialise_parameters_calls(self, intg):
-
-        for parameter_name in self.parameter_names:
-            if parameter_name.startswith('pmultigrid-'):
-                index = int(parameter_name.split('-')[1])
-                
-                @staticmethod
-                def get_parameter(intg=intg, index=index):
-                    return intg.pseudointegrator.cstepsf_list[0][index]
-
-                @staticmethod
-                def set_parameter(y, intg=intg, index=index):
-                    for i in range(len(intg.pseudointegrator.cstepsf_list)):
-                        intg.pseudointegrator.cstepsf_list[i][index] = y
-
-                self.get_parameters[parameter_name] = get_parameter
-                self.set_parameters[parameter_name] = set_parameter
-                
-            elif parameter_name == 'ac-zeta':
-                @staticmethod
-                def get_parameter(intg=intg):
-                    return intg.pseudointegrator.pintg.system.ac_zeta
-
-                @staticmethod
-                def set_parameter(y, intg=intg):
-                    for p in intg.pseudointegrator.pintgs:
-                        p.system.ac_zeta = y
-
-                self.get_parameters[parameter_name] = get_parameter
-                self.set_parameters[parameter_name] = set_parameter
 
     @property
     def parameters(self):

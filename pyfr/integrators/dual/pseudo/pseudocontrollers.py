@@ -71,33 +71,6 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostep_multipinfo(self, tcurr, *resids):
         self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
-    def extract_parameters(self, i):
-        if not hasattr(self, 'parameters'):
-            return {}
-        
-        
-        parameters = {}
-        
-        for param_name, arr in self.parameters.items():
-            if arr.shape[1] == 1:
-                i = 0
-
-            fin = arr[0,i]
-
-            # If fin is not a float, then something is wrong
-            if not isinstance(fin, float):
-                raise ValueError('Invalid parameter value')
-
-            parameters[param_name] = arr[0, i]
-
-        return parameters
-
-    def update_parameters(self, params):
-        
-        for param_name, arr in params.items():
-            if param_name == 'ac-zeta':
-                self.system.ac_zeta = arr
-
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'

@@ -290,6 +290,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         for i, cstepsf in enumerate(self.cstepsf_list):
 
+            parameters = self.pseudoiteration_parameters(i)
+
+            cstepsf = self.update_cstepsf(cstepsf, parameters, i)
+
             # Choose either ⌊c⌋ and ⌈c⌉ in a way that the average is c
             csteps = [int(self._fgen.choice([np.floor(c), np.ceil(c)], 
                                        p=[1 - c % 1, c % 1])) for c in cstepsf]
@@ -316,6 +320,30 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             if self.mg_convmon(self.pintg, i, self._minniters):
                 break
 
+    def update_cstepsf(self, cstepsf, parameters, i):
+        
+        for param_name, arr in parameters.items():
+            if param_name.startswith('psmoothing-'):
+                index = int(param_name.split('-')[1])
+                cstepsf[index] = arr[0, i]
+
+        return cstepsf
+
+    def pseudoiteration_parameters(self, i):
+
+        if not hasattr(self, 'parameters'):
+            return {}
+
+        parameters = {}
+        
+        for param_name, arr in self.parameters.items():
+            if arr.shape[1] == 1:
+                i = 0
+
+            parameters[param_name] = arr[:, i:i+1]
+
+        return parameters
+
     def level_pseudoiteration_parameters(self, l, i):
 
         if not hasattr(self, 'parameters'):
@@ -326,10 +354,8 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for param_name, arr in self.parameters.items():
             if arr.shape[0] == 1:
                 l = 0
-            if arr.shape[1] == 1:
-                i = 0
 
-            parameters[param_name] = arr[l:l+1, i:i+1]
+            parameters[param_name] = arr[l:l+1, :]
 
         return parameters
 
