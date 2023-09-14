@@ -2,9 +2,8 @@ import numpy as np
 
 from pyfr.optimisers.base import BaseLocalOptimiser
 
-
-class Zeta(BaseLocalOptimiser):
-    name = 'zeta'
+class Zeta_optimiser(BaseLocalOptimiser):
+    name = 'zeta_optimiser'
     systems = ['ac-euler','ac-navier-stokes']
     formulations = ['dual']
 
@@ -18,6 +17,4 @@ class Zeta(BaseLocalOptimiser):
             return        
 
         # Get parameters list 
-        print('all ζ: ',intg.parameters)
-
-        print('ζ: ', intg.pseudointegrator.system.ac_zeta)
+        print('from parameters: ζ = ',intg.parameters)

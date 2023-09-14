@@ -56,34 +56,6 @@ class BaseOptimiser:
         default_vary_with_pseudo_iterations = True
 
         for parameter_name in self.parameter_names:
-            if parameter_name == 'ac-zeta':
-
-                if default_vary_with_levels:
-                    levels = self.cfg.getint('solver', 'order') + 1
-                else:
-                    levels = 1
-
-                if default_vary_with_stages:
-                    stages = 3
-                else:
-                    stages = 1
-
-                if default_vary_with_pseudo_iterations:
-                    pseudo_iterations = self.cfg.getint('solver-time-integrator', 'pseudo-niters-max')
-                else:
-                    pseudo_iterations = 1
-
-                intg.parameters[parameter_name] = 2.5 * np.ones((stages, 
-                                                            levels,
-                                                            pseudo_iterations, 
-                                                            ))
-
-                # Let us instead have the numbers from 1 to largest, so that we can monitor indices
-                intg.parameters[parameter_name] = np.arange(1.0, 1.0 + stages*levels*pseudo_iterations).reshape((stages, 
-                                                            levels,
-                                                            pseudo_iterations, 
-                                                            ))
-                
             if parameter_name.startswith('psmoothing-'):
                 index = int(parameter_name.split('-')[1])
 

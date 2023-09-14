@@ -25,6 +25,10 @@ class BaseDIRKStepper(BaseDualStepper):
     def step(self, t, dt):
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
 
+            # If self.costs exists, then
+            if hasattr(self, 'costs'):
+                self.pseudointegrator.costs = self.stage_costs(s)
+
             # If self.parameters exists, then 
             if hasattr(self, 'parameters'):
                 self.pseudointegrator.parameters = self.stage_parameters(s)
@@ -38,6 +42,10 @@ class BaseDIRKStepper(BaseDualStepper):
             self.pseudointegrator.obtain_solution(bcoeffs)
 
         self.pseudointegrator.store_current_soln()
+
+    def stage_costs(self, s):
+        return {cost_name: arr[s, :, :] if arr.shape[0] > 1 else arr[0, :, :]
+                for cost_name, arr in self.costs.items()}
 
     def stage_parameters(self, s):
         return {param_name: arr[s, :, :] if arr.shape[0] > 1 else arr[0, :, :]

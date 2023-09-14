@@ -4,7 +4,6 @@ from pyfr.optimisers.base import (BaseOptimiser,
                                   BaseLocalOptimiser)
 from pyfr.optimisers.binarystepper import BinaryStepper
 from pyfr.optimisers.PIController import PIController
-from pyfr.optimisers.zeta import Zeta
 from pyfr.optimisers.bayesianoptimiser import BayesianOptimiser
 from pyfr.optimisers.botorch import BoTorch
 

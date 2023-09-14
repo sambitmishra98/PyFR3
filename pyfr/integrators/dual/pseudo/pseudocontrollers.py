@@ -1,3 +1,4 @@
+from time import perf_counter
 from collections import defaultdict
 
 import numpy as np
@@ -203,7 +204,16 @@ class DualPIPseudoController(BaseDualPseudoController):
             self.update_parameters(params)
 
             # Take the step
-            self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
+            
+            # if the key `pseudo-compute-time` exists in self.cost
+            if 'pseudo-compute-time' in self.cost:
+                # then we need to collect perf.
+                tstart = perf_counter()
+                self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
+                self.performanceinfo = perf_counter() - tstart
+            else:
+                self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
+
             self.localerrest(self._idxerr)
 
             if self.convmon(i, self.minniters):

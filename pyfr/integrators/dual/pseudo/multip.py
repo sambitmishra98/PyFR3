@@ -24,13 +24,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self._order = self.level = order = cfg.getint('solver', 'order')
 
         # Get the multigrid cycle
-        self.cycle, cstepsf = zip(*cfg.getliteral(mgsect, 'cycle'))
+        self.cycle, self.cstepsf = map(list,zip(*cfg.getliteral(mgsect, 'cycle')))
 
         self._maxniters = cfg.getint(sect, 'pseudo-niters-max', 0)
         self._minniters = cfg.getint(sect, 'pseudo-niters-min', 0)
-
-        # Create a list of smooothing steps for each cycle iteration
-        self.cstepsf_list = [list(cstepsf) for _ in range(self._maxniters)]
 
         self._fgen = np.random.default_rng(0)
 
@@ -288,15 +285,14 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         self.tcurr = tcurr
 
-        for i, cstepsf in enumerate(self.cstepsf_list):
+        for i in range(self._maxniters):
 
             parameters = self.pseudoiteration_parameters(i)
-
-            cstepsf = self.update_cstepsf(cstepsf, parameters, i)
+            self.cstepsf = self.update_cstepsf(self.cstepsf, parameters)
 
             # Choose either ⌊c⌋ and ⌈c⌉ in a way that the average is c
             csteps = [int(self._fgen.choice([np.floor(c), np.ceil(c)], 
-                                       p=[1 - c % 1, c % 1])) for c in cstepsf]
+                                       p=[1 - c % 1, c % 1])) for c in self.cstepsf]
 
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
@@ -320,12 +316,16 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             if self.mg_convmon(self.pintg, i, self._minniters):
                 break
 
-    def update_cstepsf(self, cstepsf, parameters, i):
+    def update_cstepsf(self, cstepsf, parameters):
         
         for param_name, arr in parameters.items():
             if param_name.startswith('psmoothing-'):
                 index = int(param_name.split('-')[1])
-                cstepsf[index] = arr[0, i]
+
+                # Location of error, lets try to print things out
+                print(f'cstepsf = {cstepsf}, arr = {arr}, index = {index}')
+
+                cstepsf[index] = arr[0, 0]
 
         return cstepsf
 

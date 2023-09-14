@@ -14,6 +14,7 @@ class BaseDualController(BaseDualIntegrator):
         if not self.isrestart:
             self._run_plugins()
             self._run_optimisers()
+            self._run_observers()
 
     def _accept_step(self, idxcurr):
         self.tcurr += self._dt
@@ -29,6 +30,7 @@ class BaseDualController(BaseDualIntegrator):
         # Run any plugins
         self._run_plugins()
         self._run_optimisers()
+        self._run_observers()
 
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []

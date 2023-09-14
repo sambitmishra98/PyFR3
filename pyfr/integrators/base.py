@@ -10,6 +10,7 @@ from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.plugins import get_plugin
 from pyfr.optimisers import get_optimiser
+from pyfr.observers import get_observer
 from pyfr.util import memoize
 
 
@@ -105,6 +106,37 @@ class BaseIntegrator:
 
         return optimisers
 
+    def _get_observers(self):
+
+        # Create counter for storing any performance information
+        self.performanceinfo = []
+        
+        observers = []
+        self.costs = {}
+        self.parameters = {}
+
+        for s in self.cfg.sections():
+            if (m := re.match('(cost|parameter)-observer-(.+?)(?:-(.+))?$', s)):
+                cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
+
+                args = (ptype, name, self, cfgsect, suffix)
+
+                # Let us use dictionary entry as `name` if suffix is None
+                # Else use name + '-' + suffix
+
+                if ptype == 'cost':
+                    self.costs[name + '-' + suffix if suffix else name] = {}
+                elif ptype == 'parameter':
+                    self.parameters[name + '-' + suffix if suffix else name] = {}
+
+                # Instead of the above, also include the suffix as name + '' + suffix
+                # If suffic is None, then name + '' + None = name
+
+                # Instantiate
+                observers.append(get_observer(*args))
+
+        return observers
+
     def _run_plugins(self):
         self.backend.wait()
 
@@ -128,6 +160,13 @@ class BaseIntegrator:
         for optimiser in self.optimisers:
             optimiser(self)
 
+    def _run_observers(self):
+        self.backend.wait()
+
+        # Fire off the observers
+        for observer in self.observers:
+            observer(self)
+
     @staticmethod
     def get_plugin_data_prefix(name, suffix):
         if suffix:
@@ -141,6 +180,13 @@ class BaseIntegrator:
             return f'optimisers/{name}-{suffix}'
         else:
             return f'optimisers/{name}'
+
+    @staticmethod
+    def get_observer_data_prefix(name, suffix):
+        if suffix:
+            return f'observers/{name}-{suffix}'
+        else:
+            return f'observers/{name}'
 
     def call_plugin_dt(self, dt):
         ta = self.tlist

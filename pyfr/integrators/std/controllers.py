@@ -23,6 +23,7 @@ class BaseStdController(BaseStdIntegrator):
         if not self.isrestart:
             self._run_plugins()
             self._run_optimisers()
+            self._run_observers()
 
     def _accept_step(self, dt, idxcurr, err=None):
         self.tcurr += dt
@@ -39,7 +40,9 @@ class BaseStdController(BaseStdIntegrator):
         self._invalidate_caches()
 
         # Run any plugins
+        self._run_plugins()
         self._run_optimisers()
+        self._run_observers()
 
         # Clear the step info
         self.stepinfo = []
