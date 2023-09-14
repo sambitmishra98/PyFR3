@@ -120,6 +120,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         # Get the convergence monitoring method
         self.mg_convmon = cc.convmon
 
+        # Get residual after one pseudo-time step
+        self.mg_resid = cc._resid
+
         # Initialise the restriction and prolongation matrices
         self._init_proj_mats()
 
@@ -303,6 +306,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 self.pintg.maxniters = self.pintg.minniters = n
 
                 self.pintg.pseudo_advance(tcurr)
+
+                res_p = self.mg_resid(self.pintg, self.pintg._idxcurr, 
+                                                  self.pintg._idxprev, 1)[0]
+                self.costs['sst_residual_norm-p'][l:l+1,
+                                                  i:i+1] = res_p
 
                 if m is not None and l > m:
                     self.restrict(l, m)

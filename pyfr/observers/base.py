@@ -1,7 +1,3 @@
-from pprint import pprint
-
-import numpy as np
-
 def init_csv(cfg, cfgsect, header, *, filekey='file', headerkey='header'):
     # Determine the file path
     fname = cfg.get(cfgsect, filekey)
@@ -43,16 +39,13 @@ class BaseCost(BaseObserver):
         super().__init__(intg, cfgsect, suffix)
 
         # Get the above from config
-        stages = self.cfg.getbool(cfgsect, 
-            'observe-all-stages', False)
-        levels = self.cfg.getbool(cfgsect, 
-            'observe-all-levels', False)
-        pniters = self.cfg.getbool(cfgsect, 
-            'observe-all-pseudoiterations', False)
+        stages = self.cfg.getbool(cfgsect, 'observe-all-stages', False)
+        levels = self.cfg.getbool(cfgsect, 'observe-all-levels', False)
+        pniters = self.cfg.getbool(cfgsect, 'observe-all-pseudoiters', False)
 
-        self._stages = intg.pseudointegrator.pintg.stage_nregs if stages else 1
-        self._levels = intg.pseudointegrator._order + 1 if levels else 1
-        self._pniters = intg.pseudointegrator._maxniters if pniters else 1
+        self._stages = intg.pseudointegrator.pintg.stage_nregs
+        self._levels = intg.pseudointegrator._order + 1
+        self._pniters = intg.pseudointegrator._maxniters
 
 
 class BaseParameter(BaseObserver):
@@ -65,13 +58,10 @@ class BaseParameter(BaseObserver):
         self.bounds = self.cfg.getliteral(cfgsect, 'bounds')
 
         # Get the above from config
-        stages = self.cfg.getbool(cfgsect, 
-            'optimise-all-stages', False)
-        levels = self.cfg.getbool(cfgsect, 
-            'optimise-all-levels', False)
-        pniters = self.cfg.getbool(cfgsect, 
-            'optimise-all-pseudoiterations', False)
+        stages = self.cfg.getbool(cfgsect, 'optimise-all-stages', False)
+        levels = self.cfg.getbool(cfgsect, 'optimise-all-levels', False)
+        piters = self.cfg.getbool(cfgsect, 'optimise-all-pseudoiters', False)
 
         self._stages = intg.pseudointegrator.pintg.stage_nregs if stages else 1
         self._levels = intg.pseudointegrator._order + 1 if levels else 1
-        self._pniters = intg.pseudointegrator._maxniters if pniters else 1
+        self._pniters = intg.pseudointegrator._maxniters if piters else 1
