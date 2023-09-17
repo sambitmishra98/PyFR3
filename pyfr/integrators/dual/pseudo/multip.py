@@ -44,6 +44,8 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.dtau = cfg.getfloat(sect, 'pseudo-dt')
         self.dtauf = cfg.getfloat(mgsect, 'pseudo-dt-fact', 1.0)
 
+        self.rewind_iter = cfg.getint(mgsect, 'rewind-iteration', 0)
+
         self._maxniters = cfg.getint(sect, 'pseudo-niters-max', 0)
         self._minniters = cfg.getint(sect, 'pseudo-niters-min', 0)
 
@@ -53,8 +55,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         cc = subclass_where(BaseDualPseudoController,
                             pseudo_controller_name=cn)
-        cc_none = subclass_where(BaseDualPseudoController,
-                                 pseudo_controller_name='none')
 
         # Construct a pseudo-integrator for each level
         from pyfr.integrators.dual.pseudo import get_pseudo_stepper_cls
@@ -117,6 +117,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         # Initialise the restriction and prolongation matrices
         self._init_proj_mats()
+
+        # Save dtau_mats
+        for l in self.levels:
+            self.pintgs[l].save_dtau_mats()
 
     def commit(self):
         for s in self.pintgs.values():
@@ -299,7 +303,17 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         self.tcurr = tcurr
 
+        # Load last saved dtau_mats
+        for l in self.levels:
+            self.pintgs[l].rewind_dtau_mats()
+
         for i in range(self._maxniters):
+
+            if i == self.rewind_iter:
+                # Save dtau_mats
+                for l in self.levels:
+                    self.pintgs[l].save_dtau_mats()
+
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
