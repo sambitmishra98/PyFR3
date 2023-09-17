@@ -330,9 +330,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             if param_name.startswith('psmoothing-'):
                 index = int(param_name.split('-')[1])
 
-                # Location of error, lets try to print things out
-                print(f'cstepsf = {cstepsf}, arr = {arr}, index = {index}')
-
                 cstepsf[index] = arr[0, 0]
 
         return cstepsf
@@ -363,7 +360,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             if arr.shape[0] == 1:
                 l = 0
 
-            parameters[param_name] = arr[l:l+1, :]
+            if arr.shape[1] == 1:
+                i = 0
+
+            parameters[param_name] = arr[l:l+1, i:i+1]
 
         return parameters
 

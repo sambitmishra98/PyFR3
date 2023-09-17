@@ -20,8 +20,9 @@ class BaseDualIntegrator(BaseIntegrator):
 
         # Event handlers for advance_to
         self.plugins = self._get_plugins(initsoln)
-        self.optimisers = self._get_optimisers()
         self.observers = self._get_observers()
+        self.modellers = self._get_modellers()
+        self.optimisers = self._get_optimisers()
 
         # Commit the pseudo integrators now we have the plugins
         self.pseudointegrator.commit()

@@ -158,5 +158,5 @@ class BaseDualPseudoIntegrator(BaseCommon):
 
     def update_parameters(self, params):
         for param_name, arr in params.items():
-            if param_name == 'ac-zeta':
+            if param_name == 'zeta':
                 self.system.ac_zeta = arr

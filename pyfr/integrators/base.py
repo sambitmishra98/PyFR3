@@ -9,8 +9,9 @@ import numpy as np
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.plugins import get_plugin
-from pyfr.optimisers import get_optimiser
 from pyfr.observers import get_observer
+from pyfr.modellers import get_modeller
+from pyfr.optimisers import get_optimiser
 from pyfr.util import memoize
 
 
@@ -88,24 +89,6 @@ class BaseIntegrator:
 
         return plugins
 
-    def _get_optimisers(self):
-
-        # Create counter for storing any performance information
-        self.performanceinfo = []
-        
-        optimisers = []
-
-        for s in self.cfg.sections():
-            if (m := re.match('(global|local)-optimiser-(.+?)(?:-(.+))?$', s)):
-                cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
-
-                args = (ptype, name, self, cfgsect)
-
-                # Instantiate
-                optimisers.append(get_optimiser(*args))
-
-        return optimisers
-
     def _get_observers(self):
 
         # Create counter for storing any performance information
@@ -137,6 +120,40 @@ class BaseIntegrator:
 
         return observers
 
+    def _get_modellers(self):
+
+        modellers = []
+
+        for s in self.cfg.sections():
+            if (m := re.match('(local|global)-modeller-(.+?)(?:-(.+))?$', s)):
+                cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
+
+                args = (ptype, name, self, cfgsect, suffix)
+
+                print(args)
+
+                # Instantiate
+                modellers.append(get_modeller(*args))
+
+        return modellers
+
+    def _get_optimisers(self):
+
+        # Create counter for storing any performance information
+        
+        optimisers = []
+
+        for s in self.cfg.sections():
+            if (m := re.match('(global|local)-optimiser-(.+?)(?:-(.+))?$', s)):
+                cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
+
+                args = (ptype, name, self, cfgsect)
+
+                # Instantiate
+                optimisers.append(get_optimiser(*args))
+
+        return optimisers
+
     def _run_plugins(self):
         self.backend.wait()
 
@@ -153,19 +170,26 @@ class BaseIntegrator:
         # Abort if plugins request it
         self._check_abort()
 
-    def _run_optimisers(self):
-        self.backend.wait()
-
-        # Fire off the optimisers
-        for optimiser in self.optimisers:
-            optimiser(self)
-
     def _run_observers(self):
         self.backend.wait()
 
         # Fire off the observers
         for observer in self.observers:
             observer(self)
+
+    def _run_modellers(self):
+        self.backend.wait()
+
+        # Fire off the modellers
+        for modeller in self.modellers:
+            modeller(self)
+
+    def _run_optimisers(self):
+        self.backend.wait()
+
+        # Fire off the optimisers
+        for optimiser in self.optimisers:
+            optimiser(self)
 
     @staticmethod
     def get_plugin_data_prefix(name, suffix):
@@ -175,18 +199,25 @@ class BaseIntegrator:
             return f'plugins/{name}'
 
     @staticmethod
-    def get_optimiser_data_prefix(name, suffix):
-        if suffix:
-            return f'optimisers/{name}-{suffix}'
-        else:
-            return f'optimisers/{name}'
-
-    @staticmethod
     def get_observer_data_prefix(name, suffix):
         if suffix:
             return f'observers/{name}-{suffix}'
         else:
             return f'observers/{name}'
+
+    @staticmethod
+    def get_modeller_data_prefix(name, suffix):
+        if suffix:
+            return f'modellers/{name}-{suffix}'
+        else:
+            return f'modellers/{name}'
+
+    @staticmethod
+    def get_optimiser_data_prefix(name, suffix):
+        if suffix:
+            return f'optimisers/{name}-{suffix}'
+        else:
+            return f'optimisers/{name}'
 
     def call_plugin_dt(self, dt):
         ta = self.tlist

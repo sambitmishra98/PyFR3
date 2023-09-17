@@ -22,8 +22,9 @@ class BaseStdController(BaseStdIntegrator):
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
-            self._run_optimisers()
             self._run_observers()
+            self._run_modellers()
+            self._run_optimisers()
 
     def _accept_step(self, dt, idxcurr, err=None):
         self.tcurr += dt
@@ -41,8 +42,9 @@ class BaseStdController(BaseStdIntegrator):
 
         # Run any plugins
         self._run_plugins()
-        self._run_optimisers()
         self._run_observers()
+        self._run_modellers()
+        self._run_optimisers()
 
         # Clear the step info
         self.stepinfo = []

@@ -1,7 +1,4 @@
-import numpy as np
-
 from pyfr.optimisers.base import BaseLocalOptimiser
-
 
 class BinaryStepper(BaseLocalOptimiser):
     name = 'binarystepper'
@@ -11,20 +8,12 @@ class BinaryStepper(BaseLocalOptimiser):
     def __init__(self, intg, cfgsect):
         super().__init__(intg, cfgsect)
 
+        self.parameter_name = 'zeta'
+        self.cost_name = 'sst_residual_norm-p'
+
+        self.factor = self.cfg.getfloat(cfgsect, 'factor', 0.1)
+
     def __call__(self, intg):
-        super().__call__(intg)
 
-        print(self.costs['runtime'][0])
-
-        if self.costs['runtime'][0] is None:
-            return
-        
-        pmg = self.parameters['pmultigrid']
-        if self.prev_costs['runtime'][0] > self.costs['runtime'][0]:
-            self.parameters = [pmg + 0.1,]
-        else:
-            self.parameters = [pmg - 0.1,]
-            
-        print(self.parameters['pmultigrid'])
-        
-        self._post_call()
+        # Modify the intg.parameters dictionary with the new values
+        intg.parameters[self.parameter_name] += intg.model*self.factor

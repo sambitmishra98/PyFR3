@@ -28,23 +28,7 @@ class BaseOptimiser:
     def __init__(self, intg, cfgsect, suffix = None):
         self.cfg = intg.cfg
         self.cfgsect = cfgsect
-
         self.suffix = suffix
-
-        cost_names = self.cfg.get(cfgsect, 'cost').split()
-        self.costlists = {cost_name: np.zeros((1, 1)) for cost_name in cost_names}
-        self.process_costs = {}
-        self.prev_costs = {cost_name: np.zeros((1, 1)) for cost_name in cost_names}
-        self.initialise_costs(cost_names)
-
-        self.parameter_names = self.cfg.get(cfgsect, 'parameter').split()
-
-        # Store the entire dataset of all parameters.
-        self._initialise_parameters(intg)
-
-        #self.get_parameters = {}
-        #self.set_parameters = {}
-        #self.initialise_parameters_calls(intg)
 
     def _initialise_parameters(self, intg):
 
