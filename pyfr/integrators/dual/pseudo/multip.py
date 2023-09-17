@@ -284,9 +284,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         return self.pintg._aux_regidx
 
-    def adjust_pseudo_step(self, dt):
+    def adjust_dtau(self, dt):
         for l in self.levels:
-            self.pintgs[l].adjust_pseudo_step(dt)
+            self.pintgs[l].adjust_dtau(dt)
 
     def pseudo_advance(self, tcurr):
         # Multigrid levels and step counts
@@ -294,7 +294,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         # Set time step and current stepper coefficients for all levels
         for l in self.levels:
-            self.pintgs[l]._dt = self._dt
+            self.pintgs[l].dt = self.dt
             self.pintgs[l].stepper_coeffs = self.stepper_coeffs
 
         self.tcurr = tcurr

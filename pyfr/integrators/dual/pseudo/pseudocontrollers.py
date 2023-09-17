@@ -8,7 +8,8 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self._dt_dtau_ratio = self._dt / self.dtau
+        self._dt_dtau_ratio = self.dt / self.dtau
+        self._dtau_fieldf = 1.0
 
         # Ensure the system is compatible with our formulation
         self.system.elementscls.validate_formulation(self)
@@ -64,7 +65,7 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostepinfo(self, niters, resid):
         self.pseudostepinfo.append((self.ntotiters, niters, resid))
 
-    def adjust_pseudo_step(self, dt):
+    def adjust_dtau(self, dt):
         self.dtau = dt / self._dt_dtau_ratio
 
 
@@ -145,19 +146,22 @@ class DualPIPseudoController(BaseDualPseudoController):
                     )
                 )
 
-        self.pseudo_step_multiplied(1.0)
+        self.bind_dtau()
 
         self.backend.commit()
 
-    def adjust_pseudo_step(self, dt):
+    def adjust_dtau(self, dt):
         old_dtau = self.dtau
-        super().adjust_pseudo_step(dt)
-        self.pseudo_step_multiplied(self.dtau / old_dtau)
+        self.dtau = dt / self._dt_dtau_ratio
+        self.multiply_limits(self.dtau / old_dtau)
 
-    def pseudo_step_multiplied(self, y):
+    def multiply_limits(self, y):
         self.dtau_min *= y
         self.dtau_max *= y
+        self._dtau_fieldf = y
+        self.bind_dtau()
 
+    def bind_dtau(self):
         for k, idx in self.pintgkernels:
             if k == 'localerrest':
                 for kk in self.pintgkernels[k, idx]:
@@ -166,7 +170,7 @@ class DualPIPseudoController(BaseDualPseudoController):
                         dtau_max=self.dtau_max, 
                         dtau_minp=self.dtau_min, 
                         dtau_maxp=self.dtau_max, 
-                        dtau_fieldf=y
+                        dtau_fieldf=self._dtau_fieldf
                     )
 
     def localerrest(self, errbank):
@@ -179,8 +183,10 @@ class DualPIPseudoController(BaseDualPseudoController):
             # Take the step
             self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
 
+            # Reset the dtau field factor after the first iteration
             if i == 0:
-                self.pseudo_step_multiplied(1.0)
+                self._dtau_fieldf = 1.0
+                self.bind_dtau()
 
             self.localerrest(self._idxerr)
 

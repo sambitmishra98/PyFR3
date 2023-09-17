@@ -59,16 +59,16 @@ class DualNoneController(BaseDualController):
         while self.tcurr < t:
 
             # Decide on the time step
-            self.adjust_step(t)
+            self.adjust_dt(t)
 
             # Decide on the pseudo time step
-            self.pseudointegrator.adjust_pseudo_step(self._dt)
+            self.pseudointegrator.adjust_dtau(self.dt)
 
             # Take the physical step
-            idxcurr = self.step(self.tcurr, self._dt)
+            idxcurr = self.step(self.tcurr, self.dt)
 
             # We are not adaptive, so accept every step
-            self._accept_step(self._dt, idxcurr)
+            self._accept_step(self.dt, idxcurr)
 
 
 class DualBinaryController(BaseDualController):
