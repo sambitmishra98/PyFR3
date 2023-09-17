@@ -1,10 +1,11 @@
 import math
 
 from pyfr.integrators.base import BaseIntegrator
+from pyfr.integrators.base import BaseCommon
 from pyfr.integrators.dual.pseudo import get_pseudo_integrator
 
 
-class BaseDualIntegrator(BaseIntegrator):
+class BaseDualIntegrator(BaseCommon, BaseIntegrator):
     formulation = 'dual'
 
     def __init__(self, backend, systemcls, rallocs, mesh, initsoln, cfg):
@@ -18,6 +19,8 @@ class BaseDualIntegrator(BaseIntegrator):
 
         # Event handlers for advance_to
         self.plugins = self._get_plugins(initsoln)
+
+        self._gndofs = self._get_gndofs()
 
         # Commit the pseudo integrators now we have the plugins
         self.pseudointegrator.commit()

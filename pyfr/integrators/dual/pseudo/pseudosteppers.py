@@ -222,6 +222,10 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
     def pseudo_stepper_has_lerrest(self):
         return self.pseudo_controller_needs_lerrest and self.bhat
 
+    @property
+    def Δτ_mats(self):
+        return [Δτ_mat.get() for Δτ_mat in self.dtau_upts]
+
 
 class DualRKVdH2RPseudoStepper(DualEmbeddedPairPseudoStepper):
     @property

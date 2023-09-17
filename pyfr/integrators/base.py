@@ -134,7 +134,7 @@ class BaseIntegrator:
 
     def call_plugin_dt(self, dt):
         ta = self.tlist
-        tb = deque(np.arange(self.tend - dt, self.tcurr, -dt).tolist()[::-1])
+        tb = deque(np.arange(self.tcurr, self.tend, dt).tolist())
 
         self.tlist = tlist = deque()
 

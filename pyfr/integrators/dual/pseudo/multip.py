@@ -63,11 +63,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
+            bases = [cc, pc]
             if l == order:
-                bases = [cc, pc]
                 mcfg = cfg
             else:
-                bases = [cc_none, pc]
+            #    bases = [cc_none, pc]
 
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
@@ -145,6 +145,14 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
     @property
     def stage_nregs(self):
         return self.pintg.stage_nregs
+
+    @property
+    def source_nregs(self):
+        return self.pintg.source_nregs
+
+    @property
+    def err_nregs(self):
+        return self.pintg.err_nregs
 
     @property
     def stepper_nregs(self):
