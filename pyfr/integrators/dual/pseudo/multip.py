@@ -159,6 +159,35 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         return self.pintg._regidx
 
     @property
+    def dtau_mats(self):
+        return self.pintg.dtau_mats
+
+    @property
+    def taulist(self):
+        return self.pintg.taulist
+
+    @property
+    def current_stage(self):
+        return self.pintg.current_stage
+
+    @current_stage.setter
+    def current_stage(self, y):
+        for s in self.pintgs.values():
+            s.current_stage = y
+
+    @property
+    def pseudo_plugins(self):
+        return self.pintg.pseudo_plugins
+
+    @pseudo_plugins.setter
+    def pseudo_plugins(self, y):
+        self.pintg.pseudo_plugins = y
+
+    @property
+    def nregs(self):
+        return self.pintg.nregs
+
+    @property
     def stage_nregs(self):
         return self.pintg.stage_nregs
 

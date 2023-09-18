@@ -195,6 +195,8 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
                                               tags={'align'})
                           for shape in self.system.ele_shapes]
 
+        self.saved_dtau_upts = self.dtau_mats
+
         # Register a pointwise kernel for the low-storage stepper
         self.backend.pointwise.register(
             'pyfr.integrators.dual.pseudo.kernels.rkvdh2pseudo'
@@ -221,6 +223,17 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
     @property
     def pseudo_stepper_has_lerrest(self):
         return self.pseudo_controller_needs_lerrest and self.bhat
+
+    @property
+    def dtau_mats(self):
+        return [dtau_mat.get() for dtau_mat in self.dtau_upts]
+
+    def save_dtau(self):
+        self.saved_dtau_upts = self.dtau_mats
+
+    def rewind_dtau(self):
+        [dtau_mat.set(saved_dtau_mat) for dtau_mat, saved_dtau_mat in 
+         zip(self.dtau_upts, self.saved_dtau_upts)]
 
 
 class DualRKVdH2RPseudoStepper(DualEmbeddedPairPseudoStepper):

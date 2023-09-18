@@ -1,6 +1,6 @@
 from pyfr.plugins.ascent import AscentPlugin
 from pyfr.plugins.base import (BaseCLIPlugin, BasePlugin, BaseSolnPlugin,
-                               BaseSolverPlugin)
+                               BaseSolverPlugin, BasePseudoPlugin)
 from pyfr.plugins.dtstats import DtStatsPlugin
 from pyfr.plugins.fluidforce import FluidForcePlugin
 from pyfr.plugins.integrate import IntegratePlugin
@@ -11,6 +11,8 @@ from pyfr.plugins.sampler import SamplerPlugin
 from pyfr.plugins.source import SourcePlugin
 from pyfr.plugins.tavg import TavgCLIPlugin, TavgPlugin
 from pyfr.plugins.writer import WriterPlugin
+from pyfr.plugins.registerwriter import RegisterWriterPlugin
+from pyfr.plugins.pseudodtwriter import PseudoDtWriterPlugin
 from pyfr.util import subclass_where
 
 
