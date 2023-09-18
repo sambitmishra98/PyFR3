@@ -78,7 +78,7 @@ class BaseSolverPlugin(BasePlugin):
     prefix = 'solver'
 
 
-class BaseSolverPlugin(BasePlugin):
+class BasePseudoPlugin(BasePlugin):
     prefix = 'pseudo'
 
 
