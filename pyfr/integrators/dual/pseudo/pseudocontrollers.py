@@ -72,6 +72,37 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostep_multipinfo(self, tcurr, *resids):
         self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
+    def _show_resid(self, rcurr, rold, norm, dt_fac):
+        comm, rank, root = get_comm_rank_root()
+
+        # Get a set of kernels to compute the residual
+        rkerns = self._get_reduction_kerns(rcurr, rold, method='resid',
+                                           norm=norm)
+
+        # Bind the dynmaic arguments
+        for kern in rkerns:
+            kern.bind(dt_fac)
+
+        # Run the kernels
+        self.backend.run_kernels(rkerns, wait=True)
+
+        # Pseudo L2 norm
+        if norm == 'l2':
+            # Reduce locally (element types) and globally (MPI ranks)
+            res = np.array([sum(e) for e in zip(*[r.retval for r in rkerns])])
+            comm.Allreduce(mpi.IN_PLACE, res, op=mpi.SUM)
+
+            # Normalise and return
+            return tuple(np.sqrt(res / self._gndofs))
+        # Uniform norm
+        else:
+            # Reduce locally (element types) and globally (MPI ranks)
+            res = np.array([max(e) for e in zip(*[r.retval for r in rkerns])])
+            comm.Allreduce(mpi.IN_PLACE, res, op=mpi.MAX)
+
+            # Normalise and return
+            return tuple(np.sqrt(res))
+
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'
