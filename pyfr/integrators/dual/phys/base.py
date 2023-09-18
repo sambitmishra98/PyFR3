@@ -27,6 +27,10 @@ class BaseDualIntegrator(BaseIntegrator):
         # Commit the pseudo integrators now we have the plugins
         self.pseudointegrator.commit()
 
+        # Set up pseudointegrator mesh uuid and cfgmeta to use pseudo-plugins
+        self.pseudointegrator.mesh_uuid = self.mesh_uuid
+        self.pseudointegrator.cfgmeta = self.cfgmeta
+
     @property
     def system(self):
         return self.pseudointegrator.system
