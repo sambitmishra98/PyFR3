@@ -169,6 +169,9 @@ class BaseDualPseudoIntegrator(BaseCommon):
     def call_plugin_dtau(self, taus):
         self.taulist = deque(taus)
 
+    def register(self,i):
+        return self.system.ele_scal_upts(i)
+
     def extract_parameters(self, i):
         if not hasattr(self, 'parameters'):
             return {}
