@@ -53,8 +53,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         cc = subclass_where(BaseDualPseudoController,
                             pseudo_controller_name=cn)
-        cc_none = subclass_where(BaseDualPseudoController,
-                                 pseudo_controller_name='none')
 
         # Construct a pseudo-integrator for each level
         from pyfr.integrators.dual.pseudo import get_pseudo_stepper_cls
@@ -63,11 +61,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
+            bases = [cc, pc]
             if l == order:
-                bases = [cc, pc]
                 mcfg = cfg
             else:
-                bases = [cc_none, pc]
 
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
