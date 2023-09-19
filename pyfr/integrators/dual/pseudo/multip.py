@@ -344,7 +344,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 csteps_s_l_i[l] += n
 
                 for cost_name, cost in self.pintg.costs_sli.items():
-                    self.costs_s[cost_name][:,i] += cost
+                    self.costs_s[cost_name][l,i] += cost
 
                 if m is not None and l > m:
                     self.restrict(l, m)

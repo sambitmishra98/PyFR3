@@ -189,6 +189,8 @@ class DualPIPseudoController(BaseDualPseudoController):
 
         #self._init_isolate_mats()
 
+        self.costs_sli = {}
+
         self.backend.commit()
 
     def localerrest(self, errbank):
@@ -227,18 +229,21 @@ class DualPIPseudoController(BaseDualPseudoController):
 
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
-        walltime_start = perf_counter()
 
         # Store the current register solution for later use
         solution_start = self.register(self._idxcurr)
 
+        walltime = 0.
         for i in range(self.maxniters):
 
             params = self.extract_parameters(i)
             self.update_parameters(params)
 
             # Take the step
+
+            walltime_start = perf_counter()
             self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
+            walltime += (perf_counter() - walltime_start)
 
             self.localerrest(self._idxerr)
 
@@ -246,7 +251,6 @@ class DualPIPseudoController(BaseDualPseudoController):
                 break
 
         solution_end = self.register(self._idxcurr)
-
         difference = self.subtract(solution_start, solution_end)
         residual = self.divide(difference, self.dtau_mats)
 
@@ -260,13 +264,10 @@ class DualPIPseudoController(BaseDualPseudoController):
 
         # ----------------------------------------------------------------------
 
-        self.costs_sli = {'walltime': perf_counter() - walltime_start,} 
+        self.costs_sli['walltime'] = walltime
 
-        norm = 'l2'
         for f in self.system.elementscls.convarmap[self.ndims]:
-            self.costs_sli |= {
-            f'res_{norm}-{f}': self.lin_op(self.extract(residual, f), norm),
-                      }
+            self.costs_sli[f'res_l2-{f}'] = self.lin_op(self.extract(residual, f), 'l2')
 
         # Isolate modes of current and previous solutions idxcurr and idxprev
         #self.isolateall(self._idxprev, self._prev_modes_regidx)

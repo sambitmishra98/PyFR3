@@ -16,12 +16,5 @@ class WallTime(BaseCost):
     def __init__(self, intg, cfgsect, suffix=None):
         super().__init__(intg, cfgsect, suffix)
 
-        # Initialise storage
-        intg.costs[self.name] = np.ones((
-                                        self._stages, 
-                                        self._levels, 
-                                        self._pniters,
-                                         ))
-
     def __call__(self, intg):
-        pass
+        self.plot_intg_cost(intg.costs[f'walltime'], name = self.plot_name, if_log = False)
