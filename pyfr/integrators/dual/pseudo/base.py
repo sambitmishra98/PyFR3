@@ -42,7 +42,7 @@ class BaseDualPseudoIntegrator(BaseCommon):
         self.stepper_nregs = stepper_nregs
 
         # Amount of temp storage required to store the previous and current modes
-        self.modes_nregs = cfg.getint('solver', 'order') + 1
+        self.modes_nregs = (cfg.getint('solver', 'order') + 1)**2
 
         source_nregs = 1
 
@@ -178,7 +178,7 @@ class BaseDualPseudoIntegrator(BaseCommon):
         
         parameters = {}
         
-        for param_name, arr in self.parameters.items():
+        for param_name, arr in self.parameters_s.items():
             if arr.shape[1] == 1:
                 i = 0
 

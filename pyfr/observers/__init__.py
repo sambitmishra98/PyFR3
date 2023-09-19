@@ -4,7 +4,7 @@ from pyfr.observers.zeta import Zeta
 from pyfr.observers.psmoothing import PSmoothing
 
 from pyfr.observers.residual import SStResidualNorm
-from pyfr.observers.walltime import ComputeTime
+from pyfr.observers.walltime import WallTime
 
 from pyfr.util import subclass_where
 

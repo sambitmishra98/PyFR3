@@ -27,29 +27,27 @@ class BaseDIRKStepper(BaseDualStepper):
     def step(self, t, dt):
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
 
-            # If self.costs exists, then initialise to 0
-            if hasattr(self, 'costs'):
-                self.pseudointegrator.costs = self.stage_costs(s)
+            self.pseudointegrator.costs_s = {
+                cost_name: np.zeros_like(arr[0,:,:]) 
+                    for cost_name, arr in self.costs.items()}
 
             # If self.parameters exists, then 
             if hasattr(self, 'parameters'):
-                self.pseudointegrator.parameters = self.stage_parameters(s)
+                self.pseudointegrator.parameters_s = self.stage_parameters(s)
 
             self.pseudointegrator.init_stage(s, sc, dt)
             self.pseudointegrator.pseudo_advance(t + dt*tc)
             self.pseudointegrator.finalise_stage(s, t + dt*tc)
+
+            # Collect the costs 
+            for cost_name, cost in self.pseudointegrator.costs_s.items():
+                self.costs[cost_name][s, :, :] = cost
 
         if not self.fsal:
             bcoeffs = [bt*self._dt for bt in self.b]
             self.pseudointegrator.obtain_solution(bcoeffs)
 
         self.pseudointegrator.store_current_soln()
-
-    def stage_costs(self, s):
-        # Set as a dictionary with cost_name as key and a zero array as value, 
-        # such that the size of the array is the same as that seen in self.costs
-        return {cost_name: np.zeros_like(arr[0, :, :]) 
-                for cost_name, arr in self.costs.items()}
 
     def stage_parameters(self, s):
         return {param_name: arr[s, :, :] if arr.shape[0] > 1 else arr[0, :, :]

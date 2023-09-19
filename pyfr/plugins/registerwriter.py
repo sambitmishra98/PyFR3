@@ -1,6 +1,3 @@
-import numpy as np
-
-from pprint import pprint
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root
 from pyfr.plugins.base import BasePseudoPlugin, PostactionMixin, RegionMixin
@@ -22,11 +19,6 @@ class RegisterWriterPlugin(PostactionMixin, RegionMixin, BasePseudoPlugin):
         # Construct the solution writer
         self._writer = NativeWriter(intg, basedir, basename, 'soln')
 
-        # Get list of times at which to output
-        # Give details of time, stage, pseudo-iteration
-        # Format: [(1, 1, 1),]
-        self.times = self.cfg.getliteral(self.cfgsect, 'times')
-
         # Output field names
         self.fields = intg.system.elementscls.convarmap[self.ndims]
 
@@ -34,14 +26,16 @@ class RegisterWriterPlugin(PostactionMixin, RegionMixin, BasePseudoPlugin):
         self.fpdtype = intg.backend.fpdtype
 
         # Register our output times with the integrator
-        intg.call_plugin_dtau(self.times)
-
-        self.regidx = int(suffix)
+        intg.collected_registers = {}
 
     def __call__(self, intg):
 
         comm, rank, root = get_comm_rank_root()
 
+        # If the dictionary intg.collected_registers is empty then we have no work
+        if not intg.collected_registers:
+            return
+        
         stats = Inifile()
         stats.set('data', 'fields', ','.join(self.fields))
         stats.set('data', 'prefix', 'soln')
@@ -56,25 +50,23 @@ class RegisterWriterPlugin(PostactionMixin, RegionMixin, BasePseudoPlugin):
         else:
             metadata = None
 
-        # Fetch and (if necessary) subset the solution
-
         data = dict(self._ele_region_data)
 
-        registers = [intg.register(i) for i in range(intg.nregs)]
+        for file_name, register in intg.collected_registers.items():
 
         # Stack together expressions by element type
-#        stacked_regs = [np.vstack(list(register)) for register in zip(*registers)]
+#        stacked_regs = [np.vstack(list(register)) 
+#                           for register in zip(*registers)]
 
 #        for (idx, etype, rgn), reg in zip(self._ele_regions, stacked_regs):
 #            data[etype] = reg.astype(self.fpdtype)
 
+            for idx, etype, rgn in self._ele_regions:
+                data[etype] = register[idx][..., rgn].astype(self.fpdtype)
 
-        for idx, etype, rgn in self._ele_regions:
-            data[etype] = registers[self.regidx][idx][..., rgn].astype(self.fpdtype)
+            # Write out the file
+            solnfname = self._writer.write(data, intg.tcurr, metadata)
 
-        # Write out the file
-        solnfname = self._writer.write(data, intg.tcurr, metadata)
-
-        intg.abort = False
-        self._invoke_postaction(intg=intg, mesh=intg.system.mesh.fname,
-                                soln=solnfname, t=intg.tcurr)
+            intg.abort = False
+            self._invoke_postaction(intg=intg, mesh=intg.system.mesh.fname,
+                                    soln=solnfname, t=intg.tcurr)

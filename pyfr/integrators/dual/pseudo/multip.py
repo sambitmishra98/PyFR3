@@ -68,11 +68,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
+            bases = [cc, pc]
             if l == order:
-                bases = [cc, pc]
                 mcfg = cfg
             else:
-                bases = [cc_none, pc]
 
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
@@ -125,6 +124,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         # Initialise the restriction and prolongation matrices
         self._init_proj_mats()
+
+#        # Prepare pseudo-plugin for each level
+        for l in self.levels:
+#            self.pintgs[l].pseudo_plugins = self._get_pseudo_plugins()
+            self.pintgs[l].ndims = self.system.ndims
 
     def commit(self):
         for s in self.pintgs.values():
@@ -326,25 +330,29 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             csteps = [int(self._fgen.choice([np.floor(c), np.ceil(c)], 
                                        p=[1 - c % 1, c % 1])) for c in self.cstepsf]
 
+            csteps_s_l_i = np.zeros((len(self.levels)))
+
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
-                self.pintg.parameters = self.level_pseudoiteration_parameters(l, i)
+                self.pintg.parameters_sli = self.level_pseudoiteration_parameters(l, i)
                 
                 # Set the number of smoothing steps at each level
                 self.pintg.maxniters = self.pintg.minniters = n
 
                 self.pintg.pseudo_advance(tcurr)
+                csteps_s_l_i[l] += n
 
-                res_p = self.mg_resid(self.pintg, self.pintg._idxcurr, 
-                                                  self.pintg._idxprev, 1)[0]
-                self.costs['sst_residual_norm-p'][l:l+1,
-                                                  i:i+1] = res_p
+                for cost_name, cost in self.pintg.costs_sli.items():
+                    self.costs_s[cost_name][:,i] += cost
 
                 if m is not None and l > m:
                     self.restrict(l, m)
                 elif m is not None and l < m:
                     self.prolongate(l, m)
+
+            for cost_name, cost in self.costs_s.items():
+                self.costs_s[cost_name][:,i] /= csteps_s_l_i
 
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1
@@ -370,7 +378,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         parameters = {}
         
-        for param_name, arr in self.parameters.items():
+        for param_name, arr in self.parameters_s.items():
             if arr.shape[1] == 1:
                 i = 0
 
@@ -385,7 +393,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         parameters = {}
         
-        for param_name, arr in self.parameters.items():
+        for param_name, arr in self.parameters_s.items():
             if arr.shape[0] == 1:
                 l = 0
 

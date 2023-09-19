@@ -72,9 +72,6 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostep_multipinfo(self, tcurr, *resids):
         self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
-    def set_costs(self, cost_name, l, i, y):
-        self.costs[cost_name][l, i] = y
-
     def _show_resid(self, rcurr, rold, norm, dt_fac):
         comm, rank, root = get_comm_rank_root()
 
@@ -230,7 +227,10 @@ class DualPIPseudoController(BaseDualPseudoController):
 
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
-        #order = self.modes_nregs - 1
+        walltime_start = perf_counter()
+
+        # Store the current register solution for later use
+        solution_start = self.register(self._idxcurr)
 
         for i in range(self.maxniters):
 
@@ -245,6 +245,29 @@ class DualPIPseudoController(BaseDualPseudoController):
             if self.convmon(i, self.minniters):
                 break
 
+        solution_end = self.register(self._idxcurr)
+
+        difference = self.subtract(solution_start, solution_end)
+        residual = self.divide(difference, self.dtau_mats)
+
+        #if self.maxniters > 1:
+        #    s_err = self.register(self._idxerr)
+
+        # ----------------------------------------------------------------------
+        # Use this space to store registers for the pseudo-plugin
+        #if tcurr == 0 and self.ntotiters == 0:
+        #    self.collected_registers[f'solution-start-{tcurr}']
+
+        # ----------------------------------------------------------------------
+
+        self.costs_sli = {'walltime': perf_counter() - walltime_start,} 
+
+        norm = 'l2'
+        for f in self.system.elementscls.convarmap[self.ndims]:
+            self.costs_sli |= {
+            f'res_{norm}-{f}': self.lin_op(self.extract(residual, f), norm),
+                      }
+
         # Isolate modes of current and previous solutions idxcurr and idxprev
         #self.isolateall(self._idxprev, self._prev_modes_regidx)
         #self.isolateall(self._idxcurr, self._curr_modes_regidx)
@@ -253,3 +276,90 @@ class DualPIPseudoController(BaseDualPseudoController):
         #    resids.append(self._resid(self._curr_modes_regidx[ii],
         #                              self._prev_modes_regidx[ii], 1))
         #self._update_pseudostep_multipinfo(tcurr, *resids)
+
+    def extract_field(self, reg, field):
+        if field not in self.system.elementscls.convarmap[self.ndims]:
+            raise ValueError('Invalid field')
+
+    def subtract(self, reg_1, reg_2):
+        # Perform reg_1 - reg_2
+        return [[np.subtract(inner_a, inner_b) for inner_a, inner_b in
+                        zip(outer_a, outer_b)] for outer_a, outer_b in
+                       zip(reg_1, reg_2)]
+
+    def divide(self, reg_1, reg_2):
+        # Perform reg_1 / reg_2
+        return [[np.divide(inner_a, inner_b) for inner_a, inner_b in
+                        zip(outer_a, outer_b)] for outer_a, outer_b in
+                       zip(reg_1, reg_2)]
+
+    def lin_op(self, reg, operation):
+        if operation not in {'min', 'max', 'mean', 'std-dev', 'l1', 'l2', 'l-inf'}:
+            raise ValueError('Invalid operation')
+
+        if operation == 'min':
+            return min([np.min(inner_array) for outer_array in 
+                        reg for inner_array in outer_array])
+        
+        elif operation == 'max':
+            return max([np.max(inner_array) for outer_array in 
+                        reg for inner_array in outer_array])
+
+        elif operation == 'mean':
+            total_sum = sum([np.sum(inner_array) for outer_array in 
+                             reg for inner_array in outer_array])
+            total_elements = sum([inner_array.size for outer_array in 
+                                  reg for inner_array in outer_array])
+            return total_sum / total_elements
+        
+        elif operation == 'std-dev':
+            mean_val = self.lin_op(reg, 'mean')
+            total_elements = sum([inner_array.size for outer_array in 
+                                  reg for inner_array in outer_array])
+            squared_diff_sum = sum([np.sum((inner_array - mean_val) ** 2) 
+                                    for outer_array in reg for inner_array in outer_array])
+            return np.sqrt(squared_diff_sum / total_elements)
+
+        elif operation == 'l1':
+            return sum([np.sum(np.abs(inner_array)) for outer_array in reg 
+                        for inner_array in outer_array])
+
+        elif operation == 'l2':
+            sum_of_squares = sum([np.sum(inner_array**2) for outer_array in reg 
+                                  for inner_array in outer_array])
+            return np.sqrt(sum_of_squares)
+        
+        elif operation == 'l-inf':
+            return max([np.max(np.abs(inner_array)) for outer_array in reg 
+                        for inner_array in outer_array])
+            
+    def extract(self, reg, field_variable):
+        if field_variable not in {'p', 'u', 'v', 'w'}:
+            raise ValueError('Invalid field variable')
+
+        # Assuming 'p', 'u', and 'v' are in the order [p, u, v] in the innermost ndarray
+        field_idx = {'p': 0, 'u': 1, 'v': 2, 'w': 3}[field_variable]
+
+        # Extracting the specific field variable from each inner ndarray
+        extracted = [[inner_array[field_idx] for inner_array in outer_array] for outer_array in reg]
+        
+        return extracted
+
+
+    #def inspect_structure_2(self, data, depth=0, max_depth=2):
+    #    if depth > max_depth:
+    #        return '...'
+    #    if isinstance(data, (list, tuple, np.ndarray)):
+    #        return type(data).__name__ + '[' + ', '.join(self.inspect_structure_2(item, depth+1) for item in data) + ']'
+    #    else:
+    #        return str(type(data))
+    #def inspect_data_structure_1(self, data, depth=0, max_depth=2):
+    #    if depth > max_depth:
+    #        return str(type(data))
+    #    if isinstance(data, (list, tuple, np.ndarray)):
+    #        element_types = {self.inspect_data_structure_1(item, depth + 1) for item in data}
+    #        return f"{type(data)} of {element_types}"
+    #    else:
+    #        return str(type(data))
+    #data_structure = self.inspect_data_structure_1(solution_start)  # replace 'your_variable' with the name of your variable
+    #   print(data_structure)
