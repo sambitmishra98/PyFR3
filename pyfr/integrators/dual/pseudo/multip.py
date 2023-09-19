@@ -351,8 +351,8 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 elif m is not None and l < m:
                     self.prolongate(l, m)
 
-            for cost_name, cost in self.costs_s.items():
-                self.costs_s[cost_name][:,i] /= csteps_s_l_i
+            #for cost_name, cost in self.costs_s.items():
+            #    self.costs_s[cost_name][:,i] /= csteps_s_l_i
 
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1

@@ -253,6 +253,7 @@ class DualPIPseudoController(BaseDualPseudoController):
         solution_end = self.register(self._idxcurr)
         difference = self.subtract(solution_start, solution_end)
         residual = self.divide(difference, self.dtau_mats)
+        #residual = self.divide(residual, solution_start)
 
         #if self.maxniters > 1:
         #    s_err = self.register(self._idxerr)
