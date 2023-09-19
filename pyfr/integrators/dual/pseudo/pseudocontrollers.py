@@ -72,6 +72,9 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def _update_pseudostep_multipinfo(self, tcurr, *resids):
         self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
+    def set_costs(self, cost_name, l, i, y):
+        self.costs[cost_name][l, i] = y
+
     def _show_resid(self, rcurr, rold, norm, dt_fac):
         comm, rank, root = get_comm_rank_root()
 
@@ -235,15 +238,7 @@ class DualPIPseudoController(BaseDualPseudoController):
             self.update_parameters(params)
 
             # Take the step
-            
-            # if the key `pseudo-compute-time` exists in self.cost
-            if 'pseudo-compute-time' in self.cost:
-                # then we need to collect perf.
-                tstart = perf_counter()
-                self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
-                self.performanceinfo = perf_counter() - tstart
-            else:
-                self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
+            self._idxcurr, self._idxprev, self._idxerr = self.step(self.tcurr)
 
             self.localerrest(self._idxerr)
 

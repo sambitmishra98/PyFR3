@@ -1,5 +1,7 @@
 import math
 
+import numpy as np
+
 from pyfr.integrators.dual.phys.base import BaseDualIntegrator
 
 
@@ -25,7 +27,7 @@ class BaseDIRKStepper(BaseDualStepper):
     def step(self, t, dt):
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
 
-            # If self.costs exists, then
+            # If self.costs exists, then initialise to 0
             if hasattr(self, 'costs'):
                 self.pseudointegrator.costs = self.stage_costs(s)
 
@@ -44,7 +46,9 @@ class BaseDIRKStepper(BaseDualStepper):
         self.pseudointegrator.store_current_soln()
 
     def stage_costs(self, s):
-        return {cost_name: arr[s, :, :] if arr.shape[0] > 1 else arr[0, :, :]
+        # Set as a dictionary with cost_name as key and a zero array as value, 
+        # such that the size of the array is the same as that seen in self.costs
+        return {cost_name: np.zeros_like(arr[0, :, :]) 
                 for cost_name, arr in self.costs.items()}
 
     def stage_parameters(self, s):
