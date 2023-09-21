@@ -55,11 +55,14 @@ class BaseCost(BaseObserver):
         # Get plot name
         self.plot_name = self.cfg.get(cfgsect, 'plot-name', self.cost_name)
 
-        default_shape = (1, 1)
+        default_shape = (1,)
+
+        # If self.name has `modes` in it, then we need to add the number of modes
+        shape = (7,) if 'modes' in self.name else default_shape
 
         # Initialise storage
         intg.costs[self.cost_name] = np.zeros(
-            (self._stages, self._levels, self._pniters, *default_shape))
+            (self._stages, self._levels, self._pniters, *shape))
 
     def plot_intg_cost(self, plottable, name, if_log=True):
         import matplotlib.pyplot as plt
@@ -68,12 +71,15 @@ class BaseCost(BaseObserver):
 
         plt.style.use(['science', 'grid'])
 
-        line_styles = ['-', '--', '-.', ':']
-        markers = ['o', 's', 'v', '^', 'D']
+        # 7 colours for 7 modes
+        line_styles = ['-', '--', '-.', ':', '-', '--', '-.']
+        markers     = ['o', 's' , 'v' , '^', 'D', 'P' , 'X' ]
 
         # Extract the shape
         stages, levels, pseudo_iters, *rest = plottable.shape
 
+        print(rest)
+        
         # Set zeros to nan
         plottable[plottable == 0] = np.nan
 
@@ -82,17 +88,21 @@ class BaseCost(BaseObserver):
 
         # Iterate over the levels and plot the data for each id in the rest
         for l, ax in enumerate(axes):
-            for id_comb in np.ndindex(*rest):
+            for id_comb in range(rest[0]):
                 label = f"id {id_comb}"
 
-                if if_log:
-                    ax.semilogy(plottable[:, l, :, *id_comb].flatten(),
-                                label=label, linestyle=line_styles[id_comb[0] % len(line_styles)],
-                                marker=markers[id_comb[1] % len(markers)])
-                else:
-                    ax.plot(plottable[:, l, :, *id_comb].flatten(),
-                            label=label, linestyle=line_styles[id_comb[0] % len(line_styles)],
-                            marker=markers[id_comb[1] % len(markers)])
+                print(f"Plotting {name} for {label}...")
+
+                if if_log: 
+                    ax.semilogy(plottable[:, l, :, id_comb].flatten(), 
+                                label     = label, 
+                                linestyle = line_styles[id_comb],
+                                marker    = markers[id_comb])
+                else:      
+                    ax.plot(plottable[:, l, :, id_comb].flatten(), 
+                            label     = label, 
+                            linestyle = line_styles[id_comb],
+                            marker    = markers[id_comb])
 
                 # Highlight the boundaries between pseudo-iterations
                 for s in range(1, stages):
