@@ -259,9 +259,14 @@ class DualPIPseudoController(BaseDualPseudoController):
         self.isolateall(self._pseudo_residual_regidx, self._modes_regidx)
 
         for f in self.system.elementscls.convarmap[self.ndims]:
-            self.costs_sli[f'res_l2-{f}'] = 0 # self.lin_op(self.extract(residual, f), 'l2')
+            self.costs_sli[f'res_l2-{f}'] = self.lin_op(self.extract(residual, f), 'l2')
 
-        # self.isolateall(self._pseudo_residual_regidx, self._modes_regidx)
+        for f in self.system.elementscls.convarmap[self.ndims]:
+            vector_of_residual_modes = np.zeros(7) # (len(self._modes_regidx)))
+            for i, mode_id in enumerate(self._modes_regidx):
+                extracted_mode = self.extract(self.system.ele_scal_upts(mode_id), f)
+                vector_of_residual_modes[i] = self.lin_op(extracted_mode, 'l2')
+            self.costs_sli[f'res_modes_l2-{f}'] = vector_of_residual_modes
 
     def subtract(self, reg_1, reg_2):
         return [np.subtract(outer_a, outer_b) for outer_a, outer_b in zip(reg_1, reg_2)]

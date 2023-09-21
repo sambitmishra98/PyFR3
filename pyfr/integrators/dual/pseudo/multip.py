@@ -347,16 +347,19 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 self.pintg.pseudo_advance(tcurr)
                 csteps_s_l_i[l] += n
 
-#                for cost_name, cost in self.pintg.costs_sli.items():
-#                    self.costs_s[cost_name][l,i] += cost
+                for cost_name, cost in self.pintg.costs_sli.items():
+                    if cost_name in self.costs_s:
+                        self.costs_s[cost_name][l,i,:] += cost
 
                 if m is not None and l > m:
                     self.restrict(l, m)
                 elif m is not None and l < m:
                     self.prolongate(l, m)
 
-            #for cost_name, cost in self.costs_s.items():
-            #    self.costs_s[cost_name][:,i] /= csteps_s_l_i
+            for cost_name, cost in self.costs_s.items():
+                reshape_shape = [csteps_s_l_i.shape[0]] + [1] * (cost.ndim - 2)
+                csteps_s_l_i_reshaped = csteps_s_l_i.reshape(reshape_shape)
+                self.costs_s[cost_name][:,i,:] /= csteps_s_l_i_reshaped
 
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1

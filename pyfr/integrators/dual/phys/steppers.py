@@ -28,7 +28,7 @@ class BaseDIRKStepper(BaseDualStepper):
         for s, (sc, tc) in enumerate(zip(self.a, self.c)):
 
             self.pseudointegrator.costs_s = {
-                cost_name: np.zeros_like(arr[0,:,:]) 
+                cost_name: np.zeros_like(arr[0,:,:,:]) 
                     for cost_name, arr in self.costs.items()}
 
             # If self.parameters exists, then 
@@ -41,7 +41,7 @@ class BaseDIRKStepper(BaseDualStepper):
 
             # Collect the costs 
             for cost_name, cost in self.pseudointegrator.costs_s.items():
-                self.costs[cost_name][s, :, :] = cost
+                self.costs[cost_name][s, :, :, :] = cost
 
         if not self.fsal:
             bcoeffs = [bt*self._dt for bt in self.b]
