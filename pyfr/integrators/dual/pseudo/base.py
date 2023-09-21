@@ -92,6 +92,10 @@ class BaseDualPseudoIntegrator(BaseCommon):
         self.npseudosteps = 0
 
     @property
+    def modes_nregs(self):
+        return 2*self._order + 1
+
+    @property
     def _pseudo_stepper_regidx(self):
         return self._regidx[:self.pseudo_stepper_nregs]
 

@@ -195,7 +195,7 @@ class DualPIPseudoController(BaseDualPseudoController):
         cmat = lambda m: self.backend.const_matrix(m, tags={'align'})
 
         # We have order = self.modes_nregs squared
-        order = np.sqrt(self.modes_nregs).astype(int) - 1
+        order = int((self.modes_nregs - 1)/2)
 
         for etype in self.system.ele_types:
             b = self.system.ele_map[etype].basis.ubasis
@@ -220,7 +220,7 @@ class DualPIPseudoController(BaseDualPseudoController):
         return isolatek
 
     def isolateall(self, reg_to_isolate, regidxs_to_isolate_into):
-        order = np.sqrt(self.modes_nregs).astype(int) - 1
+        order = int((self.modes_nregs - 1)/2)
 
         for i, mode_regid in enumerate(regidxs_to_isolate_into):
             self.backend.run_kernels(self.register_isolate(order, reg_to_isolate, 
