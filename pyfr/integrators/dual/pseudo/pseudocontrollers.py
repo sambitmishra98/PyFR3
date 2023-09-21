@@ -199,24 +199,23 @@ class DualPIPseudoController(BaseDualPseudoController):
 
         for etype in self.system.ele_types:
             b = self.system.ele_map[etype].basis.ubasis
-            for idx in range(order+1):
-                for idy in range(order+1):
-                    self.isolatemats[order, idx, idy].append(
-                                    cmat(b.isolate(idx, idy)))
-
-                    # Give an elegent view the 2-D matrix stored in order, idx, idy
-#                    print(f'Isolate matrix for order {order}, idx {idx}, idy {idy}:')
-#                    print(
-#                        tabulate(b.isolate(idx, idy), tablefmt='grid'))
-#                    print("\n" + "-"*40 + "\n")
+            for idx in range(self.modes_nregs):
+                self.isolatemats[order, idx].append(
+                                cmat(b.isolate(idx)))
 
     @memoize
-    def register_isolate(self, l1, l1reg1, idx, idy, l1reg2):
+    def register_isolate(self, l1, l1reg1, idx, l1reg2):
         isolatek = []
-        for i, a in enumerate(self.isolatemats[l1, idx, idy]):
+
+        for i, a in enumerate(self.isolatemats[l1, idx]):
             b = self.system.ele_banks[i][l1reg1]
             c = self.system.ele_banks[i][l1reg2]
-            isolatek.append(self.backend.kernel('mul', a, b, out=c))
+
+            try:
+                isolatek.append(self.backend.kernel('mul', a, b, out=c))
+            except:
+                # TODO: Fix this
+                print(f'LOSE END TO SORT: i = {i}, l1 = {l1}, idx = {idx}, l1reg1 = {l1reg1}, l1reg2 = {l1reg2}')
 
         return isolatek
 
@@ -224,22 +223,14 @@ class DualPIPseudoController(BaseDualPseudoController):
         order = np.sqrt(self.modes_nregs).astype(int) - 1
 
         for i, mode_regid in enumerate(regidxs_to_isolate_into):
-
-            # i will be from 0 to (order+1)² - 1
-            # So we set idx = i // (order+1) and idy = i % (order+1)
-            idx = i // (order+1)
-            idy = i % (order+1)
-            
-            self.backend.run_kernels(self.register_isolate(order, 
-                                                           reg_to_isolate, 
-                                                           idx, idy,  
-                                                           mode_regid))
+            self.backend.run_kernels(self.register_isolate(order, reg_to_isolate, 
+                                                           i, mode_regid))
 
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
 
         # Store the current register solution for later use
-        # solution_start = self.system.ele_scal_upts(self._idxcurr)
+        solution_start = self.system.ele_scal_upts(self._idxcurr)
 
         walltime = 0.
         for i in range(self.maxniters):
@@ -258,15 +249,14 @@ class DualPIPseudoController(BaseDualPseudoController):
             if self.convmon(i, self.minniters):
                 break
 
-        # solution_end = self.system.ele_scal_upts(self._idxcurr)
-        # difference = self.subtract(solution_end, solution_start)
-        # residual = self.divide(difference, self.dtau_mats)
-        # self.system.ele_scal_upts_set(self._pseudo_residual_regidx, residual)
-
-        #relative_residual = self.divide(residual, solution_end)
-        # ----------------------------------------------------------------------
+        solution_end = self.system.ele_scal_upts(self._idxcurr)
+        difference = self.subtract(solution_end, solution_start)
+        residual = self.divide(difference, self.dtau_mats)
+        self.system.ele_scal_upts_set(self._pseudo_residual_regidx, residual)
 
         self.costs_sli['walltime'] = walltime
+
+        self.isolateall(self._pseudo_residual_regidx, self._modes_regidx)
 
         for f in self.system.elementscls.convarmap[self.ndims]:
             self.costs_sli[f'res_l2-{f}'] = 0 # self.lin_op(self.extract(residual, f), 'l2')

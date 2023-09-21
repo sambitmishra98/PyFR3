@@ -84,9 +84,13 @@ class BasePolyBasis:
         else:
             return np.eye(len(self.pts))
 
-    def isolate(self, idx, idy):
+    def isolate(self, idx):
         degmap = {dd: i for i, dd in enumerate(self.degrees)}
-        todegs = [degmap[dd] for dd in self.degrees if dd[0] == idx and dd[1] == idy]
+        todegs = []
+        
+        for dd in self.degrees:
+            if sum(dd) == idx:
+                todegs.append(degmap[dd])
 
         kk = np.zeros_like(self.vdm.T)
         kk[todegs] = self.invvdm.T[todegs]

@@ -42,7 +42,7 @@ class BaseDualPseudoIntegrator(BaseCommon):
         self.stepper_nregs = stepper_nregs
 
         # Amount of temp storage required to store the previous and current modes
-        self.modes_nregs = (cfg.getint('solver', 'order') + 1)**2
+        self._order = cfg.getint('solver', 'order')
 
         # Residual in pseudo-time
         self.pseudo_residual_nregs = 1
@@ -112,7 +112,7 @@ class BaseDualPseudoIntegrator(BaseCommon):
 
     @property
     def _modes_regidx(self):
-        cmnregs = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + self.source_nregs + self.modes_nregs
+        cmnregs = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + self.source_nregs
         return self._regidx[cmnregs:cmnregs + self.modes_nregs]
 
     @property

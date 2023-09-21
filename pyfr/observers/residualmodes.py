@@ -3,13 +3,13 @@ import numpy as np
 from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.observers import BaseCost
 
-class ResidualNorm(BaseCost):
+class ResidualModesNorm(BaseCost):
     """
         # Residual in comparison with the steady-state solution
         # This is only applicable for implicit time integrators
         
     """
-    name = 'res_l2'
+    name = 'res_modes_l2'
     systems = ['*']
     formulations = ['dual']
 
@@ -21,14 +21,14 @@ class ResidualNorm(BaseCost):
         cost = intg.costs[self.cost_name]
                 
         # Take diff across pseudo-iterations
-        self.plot_intg_cost(cost, name = self.plot_name, if_log = False)
+        self.plot_intg_cost(cost, name = self.plot_name)
         
         # diff and cost are not the same shape
         # diff is (nsteps, nstages, nlevels, niter-1)
         # cost is (nsteps, nstages, nlevels, niter)
         # Pad diff with zeros along pseudo-iteration axis
-        diff = np.diff(cost, axis = 2, append = 0)/cost
-        self.plot_intg_cost(diff, name = self.plot_name+'_diff', if_log = False)
+#        diff = np.diff(cost, axis = 2, append = 0)/cost
+#        self.plot_intg_cost(diff, name = self.plot_name+'_diff', if_log = False)
         
         # TODO
         # Create an iff condition that collects the sum across the step function in the pseudointegrator.
