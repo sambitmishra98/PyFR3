@@ -33,7 +33,6 @@ class BaseDualController(BaseDualIntegrator):
 
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
-        self.pseudointegrator.pseudostep_multipinfo = []
 
 class DualNoneController(BaseDualController):
     controller_name = 'none'
@@ -45,14 +44,7 @@ class DualNoneController(BaseDualController):
 
         while self.tcurr < t:
             # Take the physical step
-
-            # If self.perf_counter_info exists, then we need to collect perf.
-            if self.performanceinfo is not None:
-                tstart = perf_counter()
-                self.step(self.tcurr, self._dt)
-                self.performanceinfo = perf_counter() - tstart
-            else: 
-                self.step(self.tcurr, self._dt)
+            self.step(self.tcurr, self._dt)
     
             # We are not adaptive, so accept every step
             self._accept_step(self.pseudointegrator._idxcurr)

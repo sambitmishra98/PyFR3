@@ -45,14 +45,14 @@ class BaseDualPseudoIntegrator(BaseCommon):
         self.modes_nregs = (cfg.getint('solver', 'order') + 1)**2
 
         # Residual in pseudo-time
-        pseudo_residual_nregs = 1
+        self.pseudo_residual_nregs = 1
 
-        source_nregs = 1
+        self.source_nregs = 1
 
         # Determine the amount of temp storage required in total
         self.nregs = (self.pseudo_stepper_nregs + self.stepper_nregs +
-                      self.stage_nregs + source_nregs + 
-                      self.modes_nregs + pseudo_residual_nregs + 
+                      self.stage_nregs + self.source_nregs + 
+                      self.modes_nregs + self.pseudo_residual_nregs + 
                       self.aux_nregs)
 
         # Construct the relevant system
@@ -112,12 +112,12 @@ class BaseDualPseudoIntegrator(BaseCommon):
 
     @property
     def _modes_regidx(self):
-        cmnregs = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + 1 + self.modes_nregs
+        cmnregs = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + self.source_nregs + self.modes_nregs
         return self._regidx[cmnregs:cmnregs + self.modes_nregs]
 
     @property
     def _pseudo_residual_regidx(self):
-        r = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + 1 + self.modes_nregs
+        r = self.pseudo_stepper_nregs + self.stepper_nregs + self.stage_nregs + self.source_nregs + self.modes_nregs
         return self._regidx[r]
 
     def init_stage(self, currstg, stepper_coeffs, dt):

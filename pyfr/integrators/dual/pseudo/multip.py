@@ -68,7 +68,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
-            bases = [cc, pc]
             if l == order:
                 bases = [cc, pc]
                 mcfg = cfg
@@ -152,14 +151,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.pintg.pseudostepinfo = y
 
     @property
-    def performanceinfo(self):
-        return self.pintg.performanceinfo
-
-    @performanceinfo.setter
-    def performanceinfo(self, y):
-        self.pintg.performanceinfo = y
-
-    @property
     def _regidx(self):
         return self.pintg._regidx
 
@@ -203,6 +194,18 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
     @property
     def pseudo_stepper_nregs(self):
         return self.pintg.pseudo_stepper_nregs
+
+    @property
+    def source_nregs(self):
+        return self.pintg.source_nregs
+
+    @property
+    def modes_nregs(self):
+        return self.pintg.modes_nregs
+
+    @property
+    def pseudo_residual_nregs(self):
+        return self.pintg.pseudo_residual_nregs
 
     @property
     def _subdims(self):
