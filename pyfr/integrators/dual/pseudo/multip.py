@@ -68,11 +68,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
+            bases = [cc, pc]
             if l == order:
-                bases = [cc, pc]
                 mcfg = cfg
             else:
-                bases = [cc_none, pc]
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
                 mcfg.set(sect, 'pseudo-dt', dtau*self.dtauf**(order - l))
