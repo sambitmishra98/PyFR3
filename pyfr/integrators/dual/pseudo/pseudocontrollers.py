@@ -18,9 +18,6 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
         # Stats on the most recent step
         self.pseudostepinfo = []
 
-        # Stats on every multip level for the most recent step
-        self.pseudostep_multipinfo = []
-
     def convmon(self, i, minniters, dt_fac=1):
         if i >= minniters - 1:
             # Compute the normalised residual
@@ -68,9 +65,6 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
 
     def _update_pseudostepinfo(self, niters, resid):
         self.pseudostepinfo.append((self.ntotiters, niters, resid))
-
-    def _update_pseudostep_multipinfo(self, tcurr, *resids):
-        self.pseudostep_multipinfo.append((self.ntotiters, tcurr, *resids))
 
     def _show_resid(self, rcurr, rold, norm, dt_fac):
         comm, rank, root = get_comm_rank_root()
@@ -187,7 +181,7 @@ class DualPIPseudoController(BaseDualPseudoController):
                     )
                 )
 
-        #self._init_isolate_mats()
+        self._init_isolate_mats()
 
         self.costs_sli = {}
 
@@ -200,17 +194,26 @@ class DualPIPseudoController(BaseDualPseudoController):
         self.isolatemats = defaultdict(list)
         cmat = lambda m: self.backend.const_matrix(m, tags={'align'})
 
-        order = self.modes_nregs - 1
+        # We have order = self.modes_nregs squared
+        order = np.sqrt(self.modes_nregs).astype(int) - 1
 
         for etype in self.system.ele_types:
             b = self.system.ele_map[etype].basis.ubasis
-            for level_to_isolate in range(order+1):
-                self.isolatemats[order, level_to_isolate].append(cmat(b.isolate(level_to_isolate)))
+            for idx in range(order+1):
+                for idy in range(order+1):
+                    self.isolatemats[order, idx, idy].append(
+                                    cmat(b.isolate(idx, idy)))
+
+                    # Give an elegent view the 2-D matrix stored in order, idx, idy
+#                    print(f'Isolate matrix for order {order}, idx {idx}, idy {idy}:')
+#                    print(
+#                        tabulate(b.isolate(idx, idy), tablefmt='grid'))
+#                    print("\n" + "-"*40 + "\n")
 
     @memoize
     def register_isolate(self, l1, l1reg1, idx, idy, l1reg2):
         isolatek = []
-        for i, a in enumerate(self.isolatemats[l1, idx, 0]):
+        for i, a in enumerate(self.isolatemats[l1, idx, idy]):
             b = self.system.ele_banks[i][l1reg1]
             c = self.system.ele_banks[i][l1reg2]
             isolatek.append(self.backend.kernel('mul', a, b, out=c))
@@ -218,20 +221,25 @@ class DualPIPseudoController(BaseDualPseudoController):
         return isolatek
 
     def isolateall(self, reg_to_isolate, regidxs_to_isolate_into):
-        order = self.modes_nregs - 1
+        order = np.sqrt(self.modes_nregs).astype(int) - 1
 
-        for idx, mode_regid in enumerate(regidxs_to_isolate_into):
+        for i, mode_regid in enumerate(regidxs_to_isolate_into):
+
+            # i will be from 0 to (order+1)² - 1
+            # So we set idx = i // (order+1) and idy = i % (order+1)
+            idx = i // (order+1)
+            idy = i % (order+1)
+            
             self.backend.run_kernels(self.register_isolate(order, 
                                                            reg_to_isolate, 
-                                                           idx, 0,  
+                                                           idx, idy,  
                                                            mode_regid))
-
 
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
 
         # Store the current register solution for later use
-        solution_start = self.register(self._idxcurr)
+        # solution_start = self.system.ele_scal_upts(self._idxcurr)
 
         walltime = 0.
         for i in range(self.maxniters):
@@ -250,118 +258,66 @@ class DualPIPseudoController(BaseDualPseudoController):
             if self.convmon(i, self.minniters):
                 break
 
-        solution_end = self.register(self._idxcurr)
-        difference = self.subtract(solution_start, solution_end)
-        residual = self.divide(difference, self.dtau_mats)
-        #residual = self.divide(residual, solution_start)
+        # solution_end = self.system.ele_scal_upts(self._idxcurr)
+        # difference = self.subtract(solution_end, solution_start)
+        # residual = self.divide(difference, self.dtau_mats)
+        # self.system.ele_scal_upts_set(self._pseudo_residual_regidx, residual)
 
-        #if self.maxniters > 1:
-        #    s_err = self.register(self._idxerr)
-
-        # ----------------------------------------------------------------------
-        # Use this space to store registers for the pseudo-plugin
-        #if tcurr == 0 and self.ntotiters == 0:
-        #    self.collected_registers[f'solution-start-{tcurr}']
-
+        #relative_residual = self.divide(residual, solution_end)
         # ----------------------------------------------------------------------
 
         self.costs_sli['walltime'] = walltime
 
         for f in self.system.elementscls.convarmap[self.ndims]:
-            self.costs_sli[f'res_l2-{f}'] = self.lin_op(self.extract(residual, f), 'l2')
+            self.costs_sli[f'res_l2-{f}'] = 0 # self.lin_op(self.extract(residual, f), 'l2')
 
-        # Isolate modes of current and previous solutions idxcurr and idxprev
-        #self.isolateall(self._idxprev, self._prev_modes_regidx)
-        #self.isolateall(self._idxcurr, self._curr_modes_regidx)
-        #resids = []
-        #for ii in range(order+1):
-        #    resids.append(self._resid(self._curr_modes_regidx[ii],
-        #                              self._prev_modes_regidx[ii], 1))
-        #self._update_pseudostep_multipinfo(tcurr, *resids)
-
-    def extract_field(self, reg, field):
-        if field not in self.system.elementscls.convarmap[self.ndims]:
-            raise ValueError('Invalid field')
+        # self.isolateall(self._pseudo_residual_regidx, self._modes_regidx)
 
     def subtract(self, reg_1, reg_2):
-        # Perform reg_1 - reg_2
-        return [[np.subtract(inner_a, inner_b) for inner_a, inner_b in
-                        zip(outer_a, outer_b)] for outer_a, outer_b in
-                       zip(reg_1, reg_2)]
+        return [np.subtract(outer_a, outer_b) for outer_a, outer_b in zip(reg_1, reg_2)]
 
     def divide(self, reg_1, reg_2):
-        # Perform reg_1 / reg_2
-        return [[np.divide(inner_a, inner_b) for inner_a, inner_b in
-                        zip(outer_a, outer_b)] for outer_a, outer_b in
-                       zip(reg_1, reg_2)]
+        return [np.divide(outer_a, outer_b) for outer_a, outer_b in zip(reg_1, reg_2)]
 
     def lin_op(self, reg, operation):
         if operation not in {'min', 'max', 'mean', 'std-dev', 'l1', 'l2', 'l-inf'}:
             raise ValueError('Invalid operation')
 
         if operation == 'min':
-            return min([np.min(inner_array) for outer_array in 
-                        reg for inner_array in outer_array])
-        
+            return min([np.min(array) for array in reg])
+            
         elif operation == 'max':
-            return max([np.max(inner_array) for outer_array in 
-                        reg for inner_array in outer_array])
+            return max([np.max(array) for array in reg])
 
         elif operation == 'mean':
-            total_sum = sum([np.sum(inner_array) for outer_array in 
-                             reg for inner_array in outer_array])
-            total_elements = sum([inner_array.size for outer_array in 
-                                  reg for inner_array in outer_array])
+            total_sum = sum([np.sum(array) for array in reg])
+            total_elements = sum([array.size for array in reg])
             return total_sum / total_elements
-        
+            
         elif operation == 'std-dev':
             mean_val = self.lin_op(reg, 'mean')
-            total_elements = sum([inner_array.size for outer_array in 
-                                  reg for inner_array in outer_array])
-            squared_diff_sum = sum([np.sum((inner_array - mean_val) ** 2) 
-                                    for outer_array in reg for inner_array in outer_array])
+            total_elements = sum([array.size for array in reg])
+            squared_diff_sum = sum([np.sum((array - mean_val) ** 2) for array in reg])
             return np.sqrt(squared_diff_sum / total_elements)
 
         elif operation == 'l1':
-            return sum([np.sum(np.abs(inner_array)) for outer_array in reg 
-                        for inner_array in outer_array])
+            return sum([np.sum(np.abs(array)) for array in reg])
 
         elif operation == 'l2':
-            sum_of_squares = sum([np.sum(inner_array**2) for outer_array in reg 
-                                  for inner_array in outer_array])
+            sum_of_squares = sum([np.sum(array**2) for array in reg])
             return np.sqrt(sum_of_squares)
-        
+            
         elif operation == 'l-inf':
-            return max([np.max(np.abs(inner_array)) for outer_array in reg 
-                        for inner_array in outer_array])
+            return max([np.max(np.abs(array)) for array in reg])
             
     def extract(self, reg, field_variable):
-        if field_variable not in {'p', 'u', 'v', 'w'}:
+        if field_variable not in {'p', 'u', 'v'}:
             raise ValueError('Invalid field variable')
 
-        # Assuming 'p', 'u', and 'v' are in the order [p, u, v] in the innermost ndarray
-        field_idx = {'p': 0, 'u': 1, 'v': 2, 'w': 3}[field_variable]
+        # Mapping for 'p', 'u', and 'v' based on their order
+        field_idx = {'p': 0, 'u': 1, 'v': 2}[field_variable]
 
-        # Extracting the specific field variable from each inner ndarray
-        extracted = [[inner_array[field_idx] for inner_array in outer_array] for outer_array in reg]
-        
+        # Extracting the specific field variable from each inner ndarray but preserving the middle dimension
+        extracted = [outer_array[:, field_idx:field_idx+1, :] for outer_array in reg]
+            
         return extracted
-
-
-    #def inspect_structure_2(self, data, depth=0, max_depth=2):
-    #    if depth > max_depth:
-    #        return '...'
-    #    if isinstance(data, (list, tuple, np.ndarray)):
-    #        return type(data).__name__ + '[' + ', '.join(self.inspect_structure_2(item, depth+1) for item in data) + ']'
-    #    else:
-    #        return str(type(data))
-    #def inspect_data_structure_1(self, data, depth=0, max_depth=2):
-    #    if depth > max_depth:
-    #        return str(type(data))
-    #    if isinstance(data, (list, tuple, np.ndarray)):
-    #        element_types = {self.inspect_data_structure_1(item, depth + 1) for item in data}
-    #        return f"{type(data)} of {element_types}"
-    #    else:
-    #        return str(type(data))
-    #data_structure = self.inspect_data_structure_1(solution_start)  # replace 'your_variable' with the name of your variable
-    #   print(data_structure)

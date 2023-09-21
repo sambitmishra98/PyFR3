@@ -70,9 +70,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
             bases = [cc, pc]
             if l == order:
+                bases = [cc, pc]
                 mcfg = cfg
             else:
-
+                bases = [cc_none, pc]
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
                 mcfg.set(sect, 'pseudo-dt', dtau*self.dtauf**(order - l))
@@ -343,8 +344,8 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 self.pintg.pseudo_advance(tcurr)
                 csteps_s_l_i[l] += n
 
-                for cost_name, cost in self.pintg.costs_sli.items():
-                    self.costs_s[cost_name][l,i] += cost
+#                for cost_name, cost in self.pintg.costs_sli.items():
+#                    self.costs_s[cost_name][l,i] += cost
 
                 if m is not None and l > m:
                     self.restrict(l, m)

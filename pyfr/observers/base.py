@@ -55,58 +55,70 @@ class BaseCost(BaseObserver):
         # Get plot name
         self.plot_name = self.cfg.get(cfgsect, 'plot-name', self.cost_name)
 
+        default_shape = (1, 1)
+
         # Initialise storage
         intg.costs[self.cost_name] = np.zeros(
-            (self._stages, self._levels, self._pniters))
+            (self._stages, self._levels, self._pniters, *default_shape))
 
     def plot_intg_cost(self, plottable, name, if_log=True):
         import matplotlib.pyplot as plt
         import mpld3
-        
-        # Create plots as amazingly as possible, as if towards a journal publication
         import scienceplots
+
         plt.style.use(['science', 'grid'])
-        
-        # I want to also see overlapping plots, so choose the line qualities accordingly
-        # Make a list of line styles and markers, up to 5
+
         line_styles = ['-', '--', '-.', ':']
         markers = ['o', 's', 'v', '^', 'D']
-        
-        
-        # Expected: a 3D array of shape (stages, levels, pseudo-iterations)
-        stages, levels, pseudo_iters = plottable.shape
-        
-        # Set any zeros to blanks
+
+        # Extract the shape
+        stages, levels, pseudo_iters, *rest = plottable.shape
+
+        # Set zeros to nan
         plottable[plottable == 0] = np.nan
 
-        fig, ax = plt.subplots(1, 1, figsize=(15,5))
-        for l in range(levels):
-            if if_log:
-                ax.semilogy(plottable[:,l,:].flatten(), label=f'level {l}', 
-                            linestyle=line_styles[l], marker=markers[l])
-            else:
-                ax.plot(plottable[:,l,:].flatten(), label=f'level {l}', 
-                        linestyle=line_styles[l], marker=markers[l])
+        # Create subplots for each level
+        fig, axes = plt.subplots(levels, 1, figsize=(15, 5 * levels), sharex=True, sharey=True)
 
-        for s in range(1, stages):
-            ax.axvline(pseudo_iters*s, color='k', linestyle='--')
+        # Iterate over the levels and plot the data for each id in the rest
+        for l, ax in enumerate(axes):
+            for id_comb in np.ndindex(*rest):
+                label = f"id {id_comb}"
 
-        # Add grid
-        ax.grid(which='both', axis='both', linestyle='--')
+                if if_log:
+                    ax.semilogy(plottable[:, l, :, *id_comb].flatten(),
+                                label=label, linestyle=line_styles[id_comb[0] % len(line_styles)],
+                                marker=markers[id_comb[1] % len(markers)])
+                else:
+                    ax.plot(plottable[:, l, :, *id_comb].flatten(),
+                            label=label, linestyle=line_styles[id_comb[0] % len(line_styles)],
+                            marker=markers[id_comb[1] % len(markers)])
 
-        # Set xlimits to the number of pseudo-iterations
-        ax.set_xlim(0, pseudo_iters*stages)
+                # Highlight the boundaries between pseudo-iterations
+                for s in range(1, stages):
+                    ax.axvline(pseudo_iters * s, color='k', linestyle='--')
 
-        # xlabel and ylabel
-        ax.set_xlabel('Pseudo-iteration')
-        ax.set_ylabel(name)
+                # Grid
+                ax.grid(which='both', axis='both', linestyle='--')
 
-        ax.set_title(f"Variation within a physical timestep across all stages")
-        # legend outside the plot
-        ax.legend(bbox_to_anchor=(1.01, 0.5), loc='center left', borderaxespad=0.)
-            
+                # Titles and labels
+                ax.set_title(f"P-multigrid level {l}")
+                ax.set_ylabel(name)
+
+                # Legend outside the plot
+                ax.legend(bbox_to_anchor=(1.01, 0.5), loc='center left', borderaxespad=0.)
+
+            # Common x label for the last subplot
+            ax.set_xlabel('Pseudo-iteration')
+
+        # Title for the entire figure
+        fig.suptitle(f"Variation across all stages (concatenated) within a physical timestep")
+
+        fig.tight_layout()
+        fig.subplots_adjust(top=0.95)  # Allow some space for the suptitle
+
+        # Save the figure
         fig.savefig(f"{name}.png", dpi=300)
-#        mpld3.save_html(fig, f"{name}.html")
         plt.close(fig)
 
 

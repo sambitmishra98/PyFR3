@@ -21,14 +21,14 @@ class SStResidualNorm(BaseCost):
         cost = intg.costs[self.cost_name]
                 
         # Take diff across pseudo-iterations
-        self.plot_intg_cost(cost, name = self.plot_name)
+        self.plot_intg_cost(cost, name = self.plot_name, if_log = False)
         
         # diff and cost are not the same shape
         # diff is (nsteps, nstages, nlevels, niter-1)
         # cost is (nsteps, nstages, nlevels, niter)
         # Pad diff with zeros along pseudo-iteration axis
         diff = np.diff(cost, axis = 2, append = 0)/cost
-        self.plot_intg_cost(-diff, name = self.plot_name+'_diff')
+        self.plot_intg_cost(diff, name = self.plot_name+'_diff', if_log = False)
         
         # TODO
         # Create an iff condition that collects the sum across the step function in the pseudointegrator.
