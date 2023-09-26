@@ -58,7 +58,7 @@ class BaseCost(BaseObserver):
         default_shape = (1,)
 
         # If self.name has `modes` in it, then we need to add the number of modes
-        shape = (7,) if 'modes' in self.name else default_shape
+        shape = (2*self._levels-1,) if 'modes' in self.name else default_shape
 
         # Initialise storage
         intg.costs[self.cost_name] = np.zeros(
@@ -90,8 +90,6 @@ class BaseCost(BaseObserver):
         for l, ax in enumerate(axes):
             for id_comb in range(rest[0]):
                 label = f"id {id_comb}"
-
-                print(f"Plotting {name} for {label}...")
 
                 if if_log: 
                     ax.semilogy(plottable[:, l, :, id_comb].flatten(), 

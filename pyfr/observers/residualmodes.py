@@ -21,7 +21,7 @@ class ResidualModesNorm(BaseCost):
         cost = intg.costs[self.cost_name]
                 
         # Take diff across pseudo-iterations
-        self.plot_intg_cost(cost, name = self.plot_name)
+        self.plot_intg_cost(cost, name = self.plot_name, if_log = False)
         
         # diff and cost are not the same shape
         # diff is (nsteps, nstages, nlevels, niter-1)

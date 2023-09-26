@@ -58,8 +58,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         cc = subclass_where(BaseDualPseudoController,
                             pseudo_controller_name=cn)
-        cc_none = subclass_where(BaseDualPseudoController,
-                                 pseudo_controller_name='none')
 
         # Construct a pseudo-integrator for each level
         from pyfr.integrators.dual.pseudo import get_pseudo_stepper_cls
@@ -128,6 +126,18 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
 #            self.pintgs[l].pseudo_plugins = self._get_pseudo_plugins()
             self.pintgs[l].ndims = self.system.ndims
+
+        # I want to know the registers for each level
+        for l in self.levels:
+            print(f'Registers for Level {l}')
+            print(f'  _regidx: {self.pintgs[l]._regidx}')
+            print(f'  _pseudo_stepper_regidx: {self.pintgs[l]._pseudo_stepper_regidx}')
+            print(f'  _stepper_regidx: {self.pintgs[l]._stepper_regidx}')
+            print(f'  _source_regidx: {self.pintgs[l]._source_regidx}')
+            print(f'  _stage_regidx: {self.pintgs[l]._stage_regidx}')
+            print(f'  _pseudo_residual_regidx: {self.pintgs[l]._pseudo_residual_regidx}')
+            print(f'  _modes_regidx: {self.pintgs[l]._modes_regidx}')
+            print(f'  _aux_regidx: {self.pintgs[l]._aux_regidx}')
 
     def commit(self):
         for s in self.pintgs.values():
@@ -348,6 +358,13 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
                 for cost_name, cost in self.pintg.costs_sli.items():
                     if cost_name in self.costs_s:
+                        # If cost_name has `mode` in it, then we need to have cost as a vector
+                        # Make cure cost is a vector of length 7. Pad with zeros if necessary
+                        if 'modes' in cost_name:
+                            cost = np.pad(cost, 
+                                          (0, 3 - cost.shape[0]), 
+                                          'constant', 
+                                          constant_values=(0, 0))
                         self.costs_s[cost_name][l,i,:] += cost
 
                 if m is not None and l > m:

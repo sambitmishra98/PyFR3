@@ -1,4 +1,4 @@
-from time import perf_counter
+from time import perf_counter, sleep
 from collections import defaultdict
 
 import numpy as np
@@ -200,8 +200,12 @@ class DualPIPseudoController(BaseDualPseudoController):
         for etype in self.system.ele_types:
             b = self.system.ele_map[etype].basis.ubasis
             for idx in range(self.modes_nregs):
-                self.isolatemats[order, idx].append(
-                                cmat(b.isolate(idx)))
+                if etype == 'quad':
+                    self.isolatemats[order, idx].append(
+                                    cmat(b.isolate(idx)))
+                else:
+                    self.isolatemats[order, idx].append(
+                                    cmat(b.zeros()))
 
     @memoize
     def register_isolate(self, l1, l1reg1, idx, l1reg2):
@@ -211,11 +215,7 @@ class DualPIPseudoController(BaseDualPseudoController):
             b = self.system.ele_banks[i][l1reg1]
             c = self.system.ele_banks[i][l1reg2]
 
-            try:
-                isolatek.append(self.backend.kernel('mul', a, b, out=c))
-            except:
-                # TODO: Fix this
-                print(f'LOSE END TO SORT: i = {i}, l1 = {l1}, idx = {idx}, l1reg1 = {l1reg1}, l1reg2 = {l1reg2}')
+            isolatek.append(self.backend.kernel('mul', a, b, out=c))
 
         return isolatek
 
@@ -253,66 +253,69 @@ class DualPIPseudoController(BaseDualPseudoController):
         difference = self.subtract(solution_end, solution_start)
         residual = self.divide(difference, self.dtau_mats)
         self.system.ele_scal_upts_set(self._pseudo_residual_regidx, residual)
-
-        self.costs_sli['walltime'] = walltime
+        # ---------------------------------------------------------------------
+        # CORRECT UNTILL HERE
+        # ---------------------------------------------------------------------
 
         self.isolateall(self._pseudo_residual_regidx, self._modes_regidx)
 
+        self.costs_sli['walltime'] = walltime
         for f in self.system.elementscls.convarmap[self.ndims]:
             self.costs_sli[f'res_l2-{f}'] = self.lin_op(self.extract(residual, f), 'l2')
 
         for f in self.system.elementscls.convarmap[self.ndims]:
-            vector_of_residual_modes = np.zeros(7) # (len(self._modes_regidx)))
+            vector_of_residual_modes = np.zeros(3)
             for i, mode_id in enumerate(self._modes_regidx):
                 extracted_mode = self.extract(self.system.ele_scal_upts(mode_id), f)
                 vector_of_residual_modes[i] = self.lin_op(extracted_mode, 'l2')
-            self.costs_sli[f'res_modes_l2-{f}'] = vector_of_residual_modes
 
+            self.costs_sli[f'res_modes_l2-{f}'] = vector_of_residual_modes
+            
     def subtract(self, reg_1, reg_2):
-        return [np.subtract(outer_a, outer_b) for outer_a, outer_b in zip(reg_1, reg_2)]
+        return [np.subtract(elem1, elem2) for elem1, elem2 in zip(reg_1, reg_2)]
 
     def divide(self, reg_1, reg_2):
-        return [np.divide(outer_a, outer_b) for outer_a, outer_b in zip(reg_1, reg_2)]
+        return [np.divide(elem1, elem2) for elem1, elem2 in zip(reg_1, reg_2)]
 
     def lin_op(self, reg, operation):
         if operation not in {'min', 'max', 'mean', 'std-dev', 'l1', 'l2', 'l-inf'}:
             raise ValueError('Invalid operation')
 
         if operation == 'min':
-            return min([np.min(array) for array in reg])
+            return min([np.min(elem) for elem in reg])
             
         elif operation == 'max':
-            return max([np.max(array) for array in reg])
+            return max([np.max(elem) for elem in reg])
 
         elif operation == 'mean':
-            total_sum = sum([np.sum(array) for array in reg])
-            total_elements = sum([array.size for array in reg])
+            total_sum = sum([np.sum(elem) for elem in reg])
+            total_elements = sum([elem.size for elem in reg])
             return total_sum / total_elements
             
         elif operation == 'std-dev':
             mean_val = self.lin_op(reg, 'mean')
-            total_elements = sum([array.size for array in reg])
-            squared_diff_sum = sum([np.sum((array - mean_val) ** 2) for array in reg])
+            total_elements = sum([elem.size for elem in  reg])
+            squared_diff_sum = sum([np.sum((elem - mean_val) ** 2) for elem in  reg])
             return np.sqrt(squared_diff_sum / total_elements)
 
         elif operation == 'l1':
-            return sum([np.sum(np.abs(array)) for array in reg])
+            return sum([np.sum(np.abs(elem)) for elem in reg])
 
         elif operation == 'l2':
-            sum_of_squares = sum([np.sum(array**2) for array in reg])
+            sum_of_squares = sum([np.sum(np.square(elem)) for elem in reg])
             return np.sqrt(sum_of_squares)
             
         elif operation == 'l-inf':
-            return max([np.max(np.abs(array)) for array in reg])
+            return max([np.max(np.abs(elem)) for elem in reg])
             
     def extract(self, reg, field_variable):
         if field_variable not in {'p', 'u', 'v'}:
             raise ValueError('Invalid field variable')
 
         # Mapping for 'p', 'u', and 'v' based on their order
-        field_idx = {'p': 0, 'u': 1, 'v': 2}[field_variable]
+        field_idx = {'p': 0, 'u': 1, 'v': 2, 'w': 3}[field_variable]
 
         # Extracting the specific field variable from each inner ndarray but preserving the middle dimension
-        extracted = [outer_array[:, field_idx:field_idx+1, :] for outer_array in reg]
-            
+        extracted = [elem[:,field_idx,:] for elem in reg]
+
         return extracted

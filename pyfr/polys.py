@@ -97,6 +97,12 @@ class BasePolyBasis:
 
         return self.vdm.T @ kk
 
+    def identity(self):
+        return np.eye(len(self.pts))
+
+    def zeros(self):
+        return np.zeros((len(self.pts), len(self.pts)))
+
     @cached_property
     @clean
     def invvdm(self):
