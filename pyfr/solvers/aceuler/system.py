@@ -15,7 +15,7 @@ class ACEulerSystem(BaseAdvectionSystem):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        self._ac_zeta = self.cfg.getfloat('solver', 'ac-zeta', 0.0)
+        self._ac_zeta = self.cfg.getfloat('solver', 'ac-zeta')
 
     def _prepare_kernels(self, t, uinbank, foutbank):
         _, binders = self._get_kernels(uinbank, foutbank)
