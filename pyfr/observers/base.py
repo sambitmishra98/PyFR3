@@ -52,8 +52,19 @@ class BaseCost(BaseObserver):
         # Make the above in one line
         self.cost_name = self.name + '-' + suffix if suffix else self.name
 
-        # Get plot name
-        self.plot_name = self.cfg.get(cfgsect, 'plot-name', self.cost_name)
+        self.if_plot = self.cfg.getbool(cfgsect, 'if-plot', False)
+        if self.if_plot:
+            # Get plot name
+            self.plot_name = self.cfg.get(cfgsect, 'plot-name', self.cost_name)
+
+
+        self.if_write = self.cfg.getbool(cfgsect, 'if-write', False)
+        if self.if_write:
+            # Get file name
+            self.file_name = self.cfg.get(cfgsect, 'file-name', self.cost_name)
+
+            # Open the file
+            self.outf = init_csv(self.cfg, cfgsect, self.cost_name)
 
         default_shape = (1,)
 
