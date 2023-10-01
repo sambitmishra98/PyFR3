@@ -18,6 +18,9 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
         # Stats on the most recent step
         self.pseudostepinfo = []
 
+        #self._init_isolate_mats()
+        self.costs_sli = {}
+
     def convmon(self, i, minniters, dt_fac=1):
         if i >= minniters - 1:
             # Compute the normalised residual

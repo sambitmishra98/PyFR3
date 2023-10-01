@@ -396,7 +396,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
     def pseudoiteration_parameters(self, i):
 
-        if not hasattr(self, 'parameters'):
+        if not hasattr(self, 'parameters_s'):
             return {}
 
         parameters = {}
@@ -410,9 +410,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         return parameters
 
     def level_pseudoiteration_parameters(self, l, i):
-
-        if not hasattr(self, 'parameters'):
-            return {}
 
         parameters = {}
         

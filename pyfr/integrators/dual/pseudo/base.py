@@ -181,12 +181,10 @@ class BaseDualPseudoIntegrator(BaseCommon):
         return self.system.ele_scal_upts(i)
 
     def extract_parameters(self, i):
-        if not hasattr(self, 'parameters'):
-            return {}
         
         parameters = {}
         
-        for param_name, arr in self.parameters_s.items():
+        for param_name, arr in self.parameters.items():
             if arr.shape[1] == 1:
                 i = 0
 
@@ -201,6 +199,7 @@ class BaseDualPseudoIntegrator(BaseCommon):
         return parameters
 
     def update_parameters(self, params):
+
         for param_name, arr in params.items():
             if param_name == 'zeta':
                 self.system.ac_zeta = arr
