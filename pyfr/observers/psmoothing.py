@@ -10,27 +10,23 @@ class PSmoothing(BaseParameter):
     def __init__(self, intg, cfgsect, suffix=None):
         super().__init__(intg, cfgsect, suffix)
     
-        _, cstepsf = zip(*self.cfg.getliteral(
-            'solver-dual-time-integrator-multip', 'cycle'))
+        if intg.parameters.get(self.parameter_name) is None:
 
-        print(f'cstepsf = {cstepsf}')
+            print(f"Not provided {self.parameter_name} in config file. "
+                    f"Using default value.")
 
-        def_csteps = cstepsf[int(suffix)]
-        intg.parameters[self.name +'-'+ suffix] = (def_csteps * np.ones(
-                (
-                 self._stages, 
-                 self._levels,
-                 self._pniters, 
-                 )))
+            _, cstepsf = zip(*self.cfg.getliteral(
+                'solver-dual-time-integrator-multip', 'cycle'))
 
-        # Let us instead have the numbers from 1 to largest, 
-        # so that we can monitor indices
-        #intg.parameters[self.name] = np.arange(
-        #    1.0, 1.0 + stages*levels*pseudo_iterations).reshape(
-        #        (stages, 
-        #         levels,
-        #         pseudo_iterations, 
-        #        ))
+            def_csteps = cstepsf[int(suffix)]
+            intg.parameters[self.parameter_name] = def_csteps * np.ones(
+                    (
+                    self._stages, 
+                    self._levels,
+                    self._pniters, 
+                    ))
+
+        #print(f"NEW: {intg.parameters[self.parameter_name]}")
 
     def __call__(self, intg):
-        print(f'from parameters: c = ',intg.parameters)
+        return
