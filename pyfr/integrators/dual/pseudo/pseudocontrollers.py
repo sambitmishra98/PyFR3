@@ -100,6 +100,42 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
             # Normalise and return
             return tuple(np.sqrt(res))
 
+    def _init_isolate_mats(self):
+        self.isolatemats = defaultdict(list)
+        cmat = lambda m: self.backend.const_matrix(m, tags={'align'})
+
+        # We have order = self.modes_nregs squared
+        order = int((self.modes_nregs - 1)/2)
+
+        for etype in self.system.ele_types:
+            b = self.system.ele_map[etype].basis.ubasis
+            for idx in range(self.modes_nregs):
+                if etype == 'quad':
+                    self.isolatemats[order, idx].append(
+                                    cmat(b.isolate(idx)))
+                else:
+                    self.isolatemats[order, idx].append(
+                                    cmat(b.zeros()))
+
+    @memoize
+    def register_isolate(self, l1, l1reg1, idx, l1reg2):
+        isolatek = []
+
+        for i, a in enumerate(self.isolatemats[l1, idx]):
+            b = self.system.ele_banks[i][l1reg1]
+            c = self.system.ele_banks[i][l1reg2]
+
+            isolatek.append(self.backend.kernel('mul', a, b, out=c))
+
+        return isolatek
+
+    def isolateall(self, reg_to_isolate, regidxs_to_isolate_into):
+        order = int((self.modes_nregs - 1)/2)
+
+        for i, mode_regid in enumerate(regidxs_to_isolate_into):
+            self.backend.run_kernels(self.register_isolate(order, reg_to_isolate, 
+                                                           i, mode_regid))
+
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'
@@ -184,50 +220,10 @@ class DualPIPseudoController(BaseDualPseudoController):
                     )
                 )
 
-        self._init_isolate_mats()
-
-        self.costs_sli = {}
-
         self.backend.commit()
 
     def localerrest(self, errbank):
         self.backend.run_kernels(self.pintgkernels['localerrest', errbank])
-
-    def _init_isolate_mats(self):
-        self.isolatemats = defaultdict(list)
-        cmat = lambda m: self.backend.const_matrix(m, tags={'align'})
-
-        # We have order = self.modes_nregs squared
-        order = int((self.modes_nregs - 1)/2)
-
-        for etype in self.system.ele_types:
-            b = self.system.ele_map[etype].basis.ubasis
-            for idx in range(self.modes_nregs):
-                if etype == 'quad':
-                    self.isolatemats[order, idx].append(
-                                    cmat(b.isolate(idx)))
-                else:
-                    self.isolatemats[order, idx].append(
-                                    cmat(b.zeros()))
-
-    @memoize
-    def register_isolate(self, l1, l1reg1, idx, l1reg2):
-        isolatek = []
-
-        for i, a in enumerate(self.isolatemats[l1, idx]):
-            b = self.system.ele_banks[i][l1reg1]
-            c = self.system.ele_banks[i][l1reg2]
-
-            isolatek.append(self.backend.kernel('mul', a, b, out=c))
-
-        return isolatek
-
-    def isolateall(self, reg_to_isolate, regidxs_to_isolate_into):
-        order = int((self.modes_nregs - 1)/2)
-
-        for i, mode_regid in enumerate(regidxs_to_isolate_into):
-            self.backend.run_kernels(self.register_isolate(order, reg_to_isolate, 
-                                                           i, mode_regid))
 
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
