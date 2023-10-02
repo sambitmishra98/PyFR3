@@ -75,6 +75,12 @@ class BaseCost(BaseObserver):
         intg.costs[self.cost_name] = np.zeros(
             (self._stages, self._levels, self._pniters, *shape))
 
+    def __call__(self, intg):
+        if self.if_plot:
+            self.plot_intg_cost(intg.costs[self.cost_name], 
+                                name = self.plot_name, 
+                                if_log = False)
+
     def plot_intg_cost(self, plottable, name, if_log=True):
         import matplotlib.pyplot as plt
         import mpld3

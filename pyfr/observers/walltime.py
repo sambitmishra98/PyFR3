@@ -19,23 +19,12 @@ class WallTime(BaseCost):
 
 
     def __call__(self, intg):
-
-        if self.if_plot:
-            self.plot_intg_cost(intg.costs[f'walltime'], 
-                                name = self.plot_name, 
-                                if_log = False)
+        super().__call__(intg)
 
         if self.outf:
-            # Flatten the cost array
-            # We need one entry per __call__
-            # So eahc entry is a list separaterd with ','
-            costs = intg.costs[f'walltime'].flatten()
+            costs = intg.costs[self.cost_name].flatten()
             
             # Get the overall sum
             costs = sum(costs) 
-            print(costs, 
-                  sep=',',
-                file=self.outf)
-
-            # Flush to disk
+            print(costs, sep=',', file=self.outf)
             self.outf.flush()
