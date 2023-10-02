@@ -308,8 +308,8 @@ class DualPIPseudoController(BaseDualPseudoController):
             return max([np.max(np.abs(elem)) for elem in reg])
             
     def extract(self, reg, field_variable):
-        if field_variable not in {'p', 'u', 'v'}:
-            raise ValueError('Invalid field variable')
+        if field_variable not in {'p', 'u', 'v', 'w'}:
+            raise ValueError(f'Invalid field variable: {field_variable}')
 
         # Mapping for 'p', 'u', and 'v' based on their order
         field_idx = {'p': 0, 'u': 1, 'v': 2, 'w': 3}[field_variable]
