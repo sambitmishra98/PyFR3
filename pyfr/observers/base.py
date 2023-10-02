@@ -89,8 +89,6 @@ class BaseCost(BaseObserver):
         # Extract the shape
         stages, levels, pseudo_iters, *rest = plottable.shape
 
-        print(rest)
-        
         # Set zeros to nan
         plottable[plottable == 0] = np.nan
 
@@ -150,11 +148,47 @@ class BaseParameter(BaseObserver):
         # Get bounds on the cost
         self.bounds = self.cfg.getliteral(cfgsect, 'bounds')
 
-        # Get the above from config
-        stages = self.cfg.getbool(cfgsect, 'optimise-all-stages', False)
-        levels = self.cfg.getbool(cfgsect, 'optimise-all-levels', False)
-        piters = self.cfg.getbool(cfgsect, 'optimise-all-pseudoiters', False)
+        self.parameter_name = self.name + '-' + suffix if suffix else self.name
 
-        self._stages = intg.pseudointegrator.pintg.stage_nregs if stages else 1
-        self._levels = intg.pseudointegrator._order + 1 if levels else 1
-        self._pniters = intg.pseudointegrator._maxniters if piters else 1
+        # We either need (stages, levels and pseudo_iters) or the values
+        if self.cfg.hasopt(cfgsect, 'parameter-values'):
+            parameter_values = self.cfg.getliteral(cfgsect, 'parameter-values')
+
+            # Convert to a three-dimensional numpy array
+            intg.parameters[self.parameter_name] = np.array(parameter_values, )
+            
+            self._stages, self._levels, self._pniters = intg.parameters[self.parameter_name].shape
+
+        else:
+
+            # Get the above from config
+            stages = self.cfg.getbool(cfgsect, 'optimise-all-stages', False)
+            levels = self.cfg.getbool(cfgsect, 'optimise-all-levels', False)
+            piters = self.cfg.getbool(cfgsect, 'optimise-all-pseudoiters', False)
+
+            self._stages = intg.pseudointegrator.pintg.stage_nregs if stages else 1
+            self._levels = intg.pseudointegrator._order + 1 if levels else 1
+            self._pniters = intg.pseudointegrator._maxniters if piters else 1
+
+            if self.cfg.hasopt(cfgsect, 'variation'):
+                if self.cfg.get(cfgsect, 'variation') == 'uniform':
+
+                    uni = self.cfg.getfloat(cfgsect, 'variation-val')
+                    intg.parameters[self.parameter_name] = uni * np.ones(
+                        (self._stages, self._levels, self._pniters))
+                    
+                elif self.cfg.get(cfgsect, 'variation') == 'exp':
+                    a = self.cfg.getfloat(cfgsect, 'variation-exp-a') # Starting value
+                    b = self.cfg.getfloat(cfgsect, 'variation-exp-b') # Asymptoting value
+                    c = self.cfg.getfloat(cfgsect, 'variation-exp-c') # Rate of change
+                    
+                    # Formula is y = a + (b-a) * (1-exp(-c*x))
+                    y = lambda x: a + (b-a) * (1-np.exp(-c*x))
+                    
+                    intg.parameters[self.parameter_name] = np.ones(
+                        (self._stages, self._levels, self._pniters))
+                    
+                    for s in range(self._stages):
+                        for l in range(self._levels):
+                            for p in range(self._pniters):
+                                intg.parameters[self.parameter_name][s, l, p] = y(p)

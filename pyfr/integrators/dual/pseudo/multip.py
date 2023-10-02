@@ -131,16 +131,16 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             self.pintgs[l].ndims = self.system.ndims
 
         # I want to know the registers for each level
-        for l in self.levels:
-            print(f'Registers for Level {l}')
-            print(f'  _regidx: {self.pintgs[l]._regidx}')
-            print(f'  _pseudo_stepper_regidx: {self.pintgs[l]._pseudo_stepper_regidx}')
-            print(f'  _stepper_regidx: {self.pintgs[l]._stepper_regidx}')
-            print(f'  _source_regidx: {self.pintgs[l]._source_regidx}')
-            print(f'  _stage_regidx: {self.pintgs[l]._stage_regidx}')
-            print(f'  _pseudo_residual_regidx: {self.pintgs[l]._pseudo_residual_regidx}')
-            print(f'  _modes_regidx: {self.pintgs[l]._modes_regidx}')
-            print(f'  _aux_regidx: {self.pintgs[l]._aux_regidx}')
+#        for l in self.levels:
+#            print(f'Registers for Level {l}')
+#            print(f'  _regidx: {self.pintgs[l]._regidx}')
+#            print(f'  _pseudo_stepper_regidx: {self.pintgs[l]._pseudo_stepper_regidx}')
+#            print(f'  _stepper_regidx: {self.pintgs[l]._stepper_regidx}')
+#            print(f'  _source_regidx: {self.pintgs[l]._source_regidx}')
+#            print(f'  _stage_regidx: {self.pintgs[l]._stage_regidx}')
+#            print(f'  _pseudo_residual_regidx: {self.pintgs[l]._pseudo_residual_regidx}')
+#            print(f'  _modes_regidx: {self.pintgs[l]._modes_regidx}')
+#            print(f'  _aux_regidx: {self.pintgs[l]._aux_regidx}')
 
     def commit(self):
         for s in self.pintgs.values():
@@ -366,7 +366,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
-                self.pintg.parameters_sli = self.level_pseudoiteration_parameters(l, i)
+                self.pintg.parameters = self.level_pseudoiteration_parameters(l, i)
                 
                 # Set the number of smoothing steps at each level
                 self.pintg.maxniters = self.pintg.minniters = n
