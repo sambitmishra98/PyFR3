@@ -68,11 +68,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             pc = get_pseudo_stepper_cls(pn, l)
 
+            bases = [cc, pc]
             if l == order:
                 mcfg = cfg
-                bases = [cc, pc]
             else:
-                bases = [cc_none, pc]
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
                 mcfg.set(sect, 'pseudo-dt', dtau*self.dtauf**(order - l))
@@ -124,6 +123,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         # Initialise the restriction and prolongation matrices
         self._init_proj_mats()
+
+        for l in self.levels:
+            self.pintgs[l].save_dtau()
+
 
 #        # Prepare pseudo-plugin for each level
         for l in self.levels:
@@ -363,6 +366,13 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
             csteps_s_l_i = np.zeros((len(self.levels)))
 
+#-------------------------------------------------------------------------------
+# UNCOMMENT TO REWIND DTAU
+#            if i == 0:
+#               for l in self.levels:
+#                    self.pintgs[l].rewind_dtau()
+#-------------------------------------------------------------------------------
+
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
 
@@ -397,6 +407,13 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1
+
+#-------------------------------------------------------------------------------
+# UNCOMMENT TO REWIND DTAU
+#            if i == 0:
+#                for l in self.levels:
+#                    self.pintgs[l].save_dtau()
+#-------------------------------------------------------------------------------
 
             # Convergence monitoring
             if self.mg_convmon(self.pintg, i, self._minniters):

@@ -228,8 +228,13 @@ class DualPIPseudoController(BaseDualPseudoController):
     def pseudo_advance(self, tcurr):
         self.tcurr = tcurr
 
-        # Store the current register solution for later use
-        solution_start = self.system.ele_scal_upts(self._idxcurr)
+
+
+#------------------------------------------------------------       
+# THIS IS TOO EXPENSIVE
+#        # Store the current register solution for later use
+#        solution_start = self.system.ele_scal_upts(self._idxcurr)
+#------------------------------------------------------------       
 
         walltime = 0.
         for i in range(self.maxniters):
@@ -248,10 +253,17 @@ class DualPIPseudoController(BaseDualPseudoController):
             if self.convmon(i, self.minniters):
                 break
 
-        solution_end = self.system.ele_scal_upts(self._idxcurr)
-        difference = self.subtract(solution_end, solution_start)
-        residual = self.divide(difference, self.dtau_mats)
-        self.system.ele_scal_upts_set(self._pseudo_residual_regidx, residual)
+#------------------------------------------------------------       
+# THIS IS TOO EXPENSIVE
+#        solution_end = self.system.ele_scal_upts(self._idxcurr)
+#        difference = self.subtract(solution_end, solution_start)
+#        residual = self.divide(difference, self.dtau_mats)
+#        self.system.ele_scal_upts_set(self._pseudo_residual_regidx, residual)
+#        for f in self.system.elementscls.convarmap[self.ndims]:
+#            self.costs_sli[f'res_l2-{f}'] = self.lin_op(self.extract(residual, f), 'l2')
+#------------------------------------------------------------       
+
+
         # ---------------------------------------------------------------------
         # CORRECT UNTILL HERE
         # ---------------------------------------------------------------------
@@ -259,8 +271,8 @@ class DualPIPseudoController(BaseDualPseudoController):
 #        self.isolateall(self._pseudo_residual_regidx, self._modes_regidx)
 #
         self.costs_sli['walltime'] = walltime
-        for f in self.system.elementscls.convarmap[self.ndims]:
-            self.costs_sli[f'res_l2-{f}'] = self.lin_op(self.extract(residual, f), 'l2')
+
+
 
 #        for f in self.system.elementscls.convarmap[self.ndims]:
 #            vector_of_residual_modes = np.zeros(3)

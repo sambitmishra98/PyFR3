@@ -20,6 +20,6 @@ class ResidualNorm(BaseCost):
         super().__call__(intg)
 
         if self.outf:
-            costs = intg.costs[self.cost_name].flatten()
-            print(costs, sep=',', file=self.outf)
+            costs = intg.costs[self.cost_name].sum(axis=0).flatten().tolist()
+            print(*costs, sep=',', file=self.outf)
             self.outf.flush()

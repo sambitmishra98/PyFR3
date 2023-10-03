@@ -22,9 +22,7 @@ class WallTime(BaseCost):
         super().__call__(intg)
 
         if self.outf:
-            costs = intg.costs[self.cost_name].flatten()
-            
-            # Get the overall sum
+            costs = intg.costs[self.cost_name].sum(axis=0).flatten()
             costs = sum(costs) 
             print(costs, sep=',', file=self.outf)
             self.outf.flush()
