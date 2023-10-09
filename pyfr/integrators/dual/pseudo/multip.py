@@ -368,9 +368,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
 #-------------------------------------------------------------------------------
 # UNCOMMENT TO REWIND DTAU
-#            if i == 0:
-#               for l in self.levels:
-#                    self.pintgs[l].rewind_dtau()
+            if i == 0:
+               for l in self.levels:
+                    self.pintgs[l].rewind_dtau()
 #-------------------------------------------------------------------------------
 
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
@@ -410,9 +410,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
 #-------------------------------------------------------------------------------
 # UNCOMMENT TO REWIND DTAU
-#            if i == 0:
-#                for l in self.levels:
-#                    self.pintgs[l].save_dtau()
+            if i == 0:
+                for l in self.levels:
+                    self.pintgs[l].save_premultiplied_dtau()
+#                    print(f'Level {l} ', end=' ')
+#                    self.pintgs[l].saved_dtau_stats()
 #-------------------------------------------------------------------------------
 
             # Convergence monitoring
