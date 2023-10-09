@@ -196,7 +196,7 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
                           for shape in self.system.ele_shapes]
 
         self.saved_dtau_upts = self.dtau_mats
-        self.premultipler = self.cfg.getfloat('solver-time-integrator', 'premultiplier', 1.0)
+        self.premultiplier = self.cfg.getfloat('solver-time-integrator', 'premultiplier', 1.0)
 
         # Register a pointwise kernel for the low-storage stepper
         self.backend.pointwise.register(
