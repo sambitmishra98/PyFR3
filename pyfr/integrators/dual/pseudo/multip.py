@@ -355,6 +355,12 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         self.tcurr = tcurr
 
+#-------------------------------------------------------------------------------
+# UNCOMMENT TO REWIND DTAU
+#        for l in self.levels:
+#            self.pintgs[l].rewind_dtau()
+#-------------------------------------------------------------------------------
+
         for i in range(self._maxniters):
 
             parameters = self.pseudoiteration_parameters(i)
@@ -366,12 +372,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
             csteps_s_l_i = np.zeros((len(self.levels)))
 
-#-------------------------------------------------------------------------------
-# UNCOMMENT TO REWIND DTAU
-            if i == 0:
-               for l in self.levels:
-                    self.pintgs[l].rewind_dtau()
-#-------------------------------------------------------------------------------
 
             for l, m, n in it.zip_longest(cycle, cycle[1:], csteps):
                 self.level = l
@@ -410,11 +410,11 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
 #-------------------------------------------------------------------------------
 # UNCOMMENT TO REWIND DTAU
-            if i == 0:
-                for l in self.levels:
-                    self.pintgs[l].save_premultiplied_dtau()
-#                    print(f'Level {l} ', end=' ')
-#                    self.pintgs[l].saved_dtau_stats()
+#            if i == 0:
+            for l in self.levels:
+                self.pintgs[l].save_dtau()
+                print(f'{l}, ', end=' ')
+                self.pintgs[l].saved_dtau_stats()
 #-------------------------------------------------------------------------------
 
             # Convergence monitoring

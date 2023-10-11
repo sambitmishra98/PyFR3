@@ -196,7 +196,6 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
                           for shape in self.system.ele_shapes]
 
         self.saved_dtau_upts = self.dtau_mats
-        self.premultiplier = self.cfg.getfloat('solver-time-integrator', 'premultiplier', 1.0)
 
         # Register a pointwise kernel for the low-storage stepper
         self.backend.pointwise.register(
@@ -237,17 +236,17 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
 
     def saved_dtau_stats(self):
         # Print the max, min and mean pseudo time-step 
-        max = 0
-        min = 1e10
-        mean = 0
+        dtaumax = 0
+        dtaumin = 1e10
+        dtaumean = 0
         for dtau_mat in self.saved_dtau_upts:
-            max = dtau_mat.max() if dtau_mat.max() > max else max
-            min = dtau_mat.min() if dtau_mat.min() < min else min
-            mean += dtau_mat.mean()
-        mean /= len(self.saved_dtau_upts)
+            dtaumax = dtau_mat.max() if dtau_mat.max() > dtaumax else dtaumax
+            dtaumin = dtau_mat.min() if dtau_mat.min() < dtaumin else dtaumin
+            dtaumean += dtau_mat.mean()
+        dtaumean /= len(self.saved_dtau_upts)
         
         # Properly align the output
-        print(f"max: {max},\t min: {min},\t mean: {mean}")
+        print(f"{dtaumin}, {dtaumean}, {dtaumax}")
 
     def rewind_dtau(self):
         [dtau_mat.set(saved_dtau_mat) for dtau_mat, saved_dtau_mat in 
