@@ -4,11 +4,6 @@ from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.observers import BaseCost
 
 class PseudoDtMin(BaseCost):
-    """
-        # Residual in comparison with the steady-state solution
-        # This is only applicable for implicit time integrators
-        
-    """
     name = 'dtau_min'
     systems = ['*']
     formulations = ['dual']
@@ -20,16 +15,12 @@ class PseudoDtMin(BaseCost):
         super().__call__(intg)
 
         if self.outf:
-            costs = intg.costs[self.cost_name].mean(axis=0).flatten().tolist()
-            print(*costs, sep=',', file=self.outf)
+            costs = intg.costs[self.cost_name].min(axis=0).flatten()
+            self.comm.Allreduce(mpi.IN_PLACE, costs, op=mpi.MIN)
+            print(*costs.tolist(), sep=',', file=self.outf)
             self.outf.flush()
 
 class PseudoDtMean(BaseCost):
-    """
-        # Residual in comparison with the steady-state solution
-        # This is only applicable for implicit time integrators
-        
-    """
     name = 'dtau_mean'
     systems = ['*']
     formulations = ['dual']
@@ -41,16 +32,14 @@ class PseudoDtMean(BaseCost):
         super().__call__(intg)
 
         if self.outf:
-            costs = intg.costs[self.cost_name].mean(axis=0).flatten().tolist()
-            print(*costs, sep=',', file=self.outf)
+            costs = intg.costs[self.cost_name].mean(axis=0).flatten()
+            n_ranks = self.comm.Get_size()
+            self.comm.Allreduce(mpi.IN_PLACE, costs, op=mpi.SUM)
+            costs /= n_ranks
+            print(*costs.tolist(), sep=',', file=self.outf)
             self.outf.flush()
 
 class PseudoDtMax(BaseCost):
-    """
-        # Residual in comparison with the steady-state solution
-        # This is only applicable for implicit time integrators
-        
-    """
     name = 'dtau_max'
     systems = ['*']
     formulations = ['dual']
@@ -62,6 +51,7 @@ class PseudoDtMax(BaseCost):
         super().__call__(intg)
 
         if self.outf:
-            costs = intg.costs[self.cost_name].mean(axis=0).flatten().tolist()
-            print(*costs, sep=',', file=self.outf)
+            costs = intg.costs[self.cost_name].max(axis=0).flatten()
+            self.comm.Allreduce(mpi.IN_PLACE, costs, op=mpi.MAX)
+            print(*costs.tolist(), sep=',', file=self.outf)
             self.outf.flush()

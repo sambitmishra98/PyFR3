@@ -1,3 +1,4 @@
+from pyfr.mpiutil import get_comm_rank_root, mpi
 import numpy as np
 
 def init_csv(cfg, cfgsect, header, *, filekey='file', headerkey='header'):
@@ -40,6 +41,8 @@ class BaseCost(BaseObserver):
     def __init__(self, intg, cfgsect, suffix=None):
         super().__init__(intg, cfgsect, suffix)
 
+        self.comm, self.rank, self.root = get_comm_rank_root()
+
         # Get the above from config
         stages = self.cfg.getbool(cfgsect, 'observe-all-stages', False)
         levels = self.cfg.getbool(cfgsect, 'observe-all-levels', False)
@@ -64,7 +67,10 @@ class BaseCost(BaseObserver):
             self.file_name = self.cfg.get(cfgsect, 'file-name', self.cost_name)
 
             # Open the file
-            self.outf = init_csv(self.cfg, cfgsect, self.cost_name)
+            if self.rank == self.root:
+                self.outf = init_csv(self.cfg, cfgsect, self.cost_name)
+            else:
+                self.outf = None
 
         default_shape = (1,)
 
