@@ -400,6 +400,15 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 elif m is not None and l < m:
                     self.prolongate(l, m)
 
+            for l in self.levels:
+
+                for field_var in ['p', 'u']:
+
+                    dtaumin, dtaumean, dtaumax = self.pintgs[l].saved_dtau_stats(field_var)
+                    self.costs_s[f'dtau_min-{field_var}' ][l,i,:] = dtaumin
+                    self.costs_s[f'dtau_mean-{field_var}'][l,i,:] = dtaumean
+                    self.costs_s[f'dtau_max-{field_var}' ][l,i,:] = dtaumax
+
             for cost_name, cost in self.costs_s.items():
                 reshape_shape = [csteps_s_l_i.shape[0]] + [1] * (cost.ndim - 2)
                 csteps_s_l_i_reshaped = csteps_s_l_i.reshape(reshape_shape)
@@ -407,15 +416,6 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
             # Update the number of p-multigrid cycles
             self.npmgcycles += 1
-
-#-------------------------------------------------------------------------------
-# UNCOMMENT TO REWIND DTAU
-#            if i == 0:
-            for l in self.levels:
-                self.pintgs[l].save_dtau()
-                print(f'{l}, ', end=' ')
-                self.pintgs[l].saved_dtau_stats()
-#-------------------------------------------------------------------------------
 
             # Convergence monitoring
             if self.mg_convmon(self.pintg, i, self._minniters):

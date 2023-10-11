@@ -2,7 +2,7 @@ from pyfr.observers.base import (BaseObserver, BaseCost, BaseParameter)
 
 from pyfr.observers.zeta import Zeta
 from pyfr.observers.psmoothing import PSmoothing
-
+from pyfr.observers.pseudodtstats import PseudoDtMin, PseudoDtMean, PseudoDtMax
 from pyfr.observers.residual import ResidualNorm
 from pyfr.observers.residualmodes import ResidualModesNorm
 from pyfr.observers.walltime import WallTime

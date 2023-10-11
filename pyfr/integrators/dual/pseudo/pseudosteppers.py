@@ -234,19 +234,18 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
     def save_premultiplied_dtau(self):
         self.saved_dtau_upts = [self.premultiplier*dtau_mat.get() for dtau_mat in self.dtau_upts]
 
-    def saved_dtau_stats(self):
-        # Print the max, min and mean pseudo time-step 
+    def saved_dtau_stats(self, field_variable = 'p'):
         dtaumax = 0
         dtaumin = 1e10
         dtaumean = 0
-        for dtau_mat in self.saved_dtau_upts:
-            dtaumax = dtau_mat.max() if dtau_mat.max() > dtaumax else dtaumax
-            dtaumin = dtau_mat.min() if dtau_mat.min() < dtaumin else dtaumin
-            dtaumean += dtau_mat.mean()
-        dtaumean /= len(self.saved_dtau_upts)
-        
-        # Properly align the output
-        print(f"{dtaumin}, {dtaumean}, {dtaumax}")
+        for dtau_mat in self.dtau_mats:
+            i = {'p': 0, 'u': 1, 'v': 2, 'w': 3}[field_variable]
+            dtaumax = dtau_mat[:,i,:].max() if dtau_mat[:,i,:].max() > dtaumax else dtaumax
+            dtaumin = dtau_mat[:,i,:].min() if dtau_mat[:,i,:].min() < dtaumin else dtaumin
+            dtaumean += dtau_mat[:,i,:].mean()
+        dtaumean /= len(self.dtau_mats)
+
+        return dtaumin, dtaumean, dtaumax
 
     def rewind_dtau(self):
         [dtau_mat.set(saved_dtau_mat) for dtau_mat, saved_dtau_mat in 
