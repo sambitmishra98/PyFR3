@@ -283,9 +283,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         self.backend.run_kernels(self.mgproject(l1, l1src, l2, l2dst))
 
-        # Project local dtau field to lower multigrid levels
-        if self.pintgs[self._order].pseudo_controller_needs_lerrest:
-            self.backend.run_kernels(self.dtauproject(l1, l2))
+#        # Project local dtau field to lower multigrid levels
+#        if self.pintgs[self._order].pseudo_controller_needs_lerrest:
+#            self.backend.run_kernels(self.dtauproject(l1, l2))
 
         # rtemp = R = -∇·f - dQ/dt
         self.pintg._rhs_with_dts(self.tcurr, l1idxcurr, rtemp, mg_add=False)
