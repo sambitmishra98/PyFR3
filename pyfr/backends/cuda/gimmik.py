@@ -15,6 +15,8 @@ class CUDAGiMMiKKernels(CUDAKernelProvider):
         # Number of benchmarking runs
         self.nbench = backend.cfg.getint('backend-cuda', 'gimmik-nbench', 5)
 
+        self.only_gimmik = backend.cfg.get('backend-cuda', 'kernels', 'all') == 'gimmik'
+
         # Kernel cache
         self._mul_kerns = {}
 
@@ -32,7 +34,7 @@ class CUDAGiMMiKKernels(CUDAKernelProvider):
         nnz, nuq = np.count_nonzero(arr), len(np.unique(np.abs(arr)))
 
         # Check that A is suitable
-        if nuq > 28 and nnz / arr.size > 0.15:
+        if nuq > 28 and nnz / arr.size > 0.15 and not self.only_gimmik:
             raise NotSuitableError('Matrix is inappropriate for GiMMiK')
 
         # Dimensions

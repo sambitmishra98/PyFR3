@@ -21,6 +21,9 @@ class CUDABackend(BaseBackend):
         # Get the desired CUDA device
         devid = cfg.get('backend-cuda', 'device-id', 'local-rank')
 
+        # Set of kernels tested for the CUDA backend: all, cublas, gimmik
+        which_kernels = cfg.get('backend-cuda', 'kernels', 'all')
+
         uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
         if not re.match(rf'(round-robin|local-rank|\d+|{uuid})$', devid):
             raise ValueError('Invalid device-id')
@@ -73,12 +76,26 @@ class CUDABackend(BaseBackend):
         self.ordered_meta_kernel_cls = provider.CUDAOrderedMetaKernel
         self.unordered_meta_kernel_cls = provider.CUDAUnorderedMetaKernel
 
-        # Instantiate the base kernel providers
-        kprovs = [provider.CUDAPointwiseKernelProvider,
-                  blasext.CUDABlasExtKernels,
-                  packing.CUDAPackingKernels,
-                  gimmik.CUDAGiMMiKKernels,
-                  cublaslt.CUDACUBLASLtKernels]
+        if which_kernels == 'all':
+            kprovs = [provider.CUDAPointwiseKernelProvider,
+                      blasext.CUDABlasExtKernels,
+                      packing.CUDAPackingKernels,
+                      gimmik.CUDAGiMMiKKernels,
+                      cublaslt.CUDACUBLASLtKernels]
+        elif which_kernels == 'gimmik':
+            kprovs = [provider.CUDAPointwiseKernelProvider,
+                        blasext.CUDABlasExtKernels,
+                        packing.CUDAPackingKernels,
+                        gimmik.CUDAGiMMiKKernels,
+                        ]
+        elif which_kernels == 'cublas':
+            kprovs = [provider.CUDAPointwiseKernelProvider,
+                        blasext.CUDABlasExtKernels,
+                        packing.CUDAPackingKernels,
+                        cublaslt.CUDACUBLASLtKernels]
+        else:
+            raise ValueError('Invalid CUDA backend kernels')
+
         self._providers = [k(self) for k in kprovs]
 
         # Pointwise kernels
