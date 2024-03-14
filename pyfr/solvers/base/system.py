@@ -130,7 +130,7 @@ class BaseSystem:
     def _load_int_inters(self, rallocs, mesh, elemap):
         key = f'con_p{rallocs.prank}'
 
-        lhs, rhs = mesh[key].astype('U4,i4,i1,i2').tolist()
+        lhs, rhs = mesh[key].tolist()
         int_inters = self.intinterscls(self.backend, lhs, rhs, elemap,
                                        self.cfg)
 
@@ -143,7 +143,7 @@ class BaseSystem:
         for rhsprank in rallocs.prankconn[lhsprank]:
             rhsmrank = rallocs.pmrankmap[rhsprank]
             interarr = mesh[f'con_p{lhsprank}p{rhsprank}']
-            interarr = interarr.astype('U4,i4,i1,i2').tolist()
+            interarr = interarr.tolist()
 
             mpiiface = self.mpiinterscls(self.backend, interarr, rhsmrank,
                                          rallocs, elemap, self.cfg)
@@ -162,7 +162,7 @@ class BaseSystem:
                 cfgsect = f'soln-bcs-{m[1]}'
 
                 # Get the interface
-                interarr = mesh[f].astype('U4,i4,i1,i2').tolist()
+                interarr = mesh[f].tolist()
 
                 # Instantiate
                 bcclass = bcmap[self.cfg.get(cfgsect, 'type')]
@@ -325,6 +325,13 @@ class BaseSystem:
 
     def get_ele_entmin_int(self):
         return [e.get() for e in self.eles_entmin_int]
+
+    def _group(self, g, kerns, subs=[]):
+        # Eliminate non-existing kernels
+        kerns = [k for k in kerns if k is not None]
+        subs = [sub for sub in subs if None not in it.chain(*sub)]
+
+        g.group(kerns, subs)
 
     def set_ele_entmin_int(self, entmin_int):
         for e, em in zip(self.eles_entmin_int, entmin_int):
