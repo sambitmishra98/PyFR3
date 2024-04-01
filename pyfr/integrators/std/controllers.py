@@ -1,4 +1,6 @@
 import math
+from time import perf_counter
+import itt
 
 import numpy as np
 
@@ -19,15 +21,19 @@ class BaseStdController(BaseStdIntegrator):
         # Stats on the most recent step
         self.stepinfo = []
 
+        # Performance stats
+        self.perfinfo = []
+
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
 
-    def _accept_step(self, dt, idxcurr, err=None):
+    def _accept_step(self, dt, idxcurr, err=None, walldt=None):
         self.tcurr += dt
         self.nacptsteps += 1
         self.nacptchain += 1
         self.stepinfo.append((dt, 'accept', err))
+        self.perfinfo.append((walldt,))
 
         self._idxcurr = idxcurr
 
@@ -42,6 +48,9 @@ class BaseStdController(BaseStdIntegrator):
 
         # Clear the step info
         self.stepinfo = []
+
+        # Clear the performance info
+        self.perfinfo = []
 
     def _reject_step(self, dt, idxold, err=None):
         if dt <= self.dtmin:
@@ -71,10 +80,14 @@ class StdNoneController(BaseStdController):
             dt = max(min(t - self.tcurr, self._dt), self.dtmin)
 
             # Take the step
+            wallt_start = perf_counter()
+            itt.resume()
             idxcurr = self.step(self.tcurr, dt)
+            itt.pause()
+            walldt = perf_counter() - wallt_start
 
             # We are not adaptive, so accept every step
-            self._accept_step(dt, idxcurr)
+            self._accept_step(dt, idxcurr, None, walldt=walldt)
 
 
 class StdPIController(BaseStdController):
@@ -178,7 +191,9 @@ class StdPIController(BaseStdController):
             dt = max(min(t - self.tcurr, self._dt, self.dtmax), self.dtmin)
 
             # Take the step
+            wallt_start = perf_counter()
             idxcurr, idxprev, idxerr = self.step(self.tcurr, dt)
+            walldt = perf_counter() - wallt_start
 
             # Estimate the error
             err = self._errest(idxcurr, idxprev, idxerr)
@@ -193,6 +208,6 @@ class StdPIController(BaseStdController):
             # Decide if to accept or reject the step
             if err < 1.0:
                 self._errprev = err
-                self._accept_step(dt, idxcurr, err=err)
+                self._accept_step(dt, idxcurr, err=err, walldt=walldt)
             else:
                 self._reject_step(dt, idxprev, err=err)
