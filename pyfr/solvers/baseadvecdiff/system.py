@@ -1,3 +1,5 @@
+from itertools import zip_longest
+
 from pyfr.solvers.baseadvec import BaseAdvectionSystem
 from pyfr.util import memoize
 
@@ -24,7 +26,7 @@ class BaseAdvectionDiffusionSystem(BaseAdvectionSystem):
         for send, pack in zip(m['scal_fpts_send'], k['mpiint/scal_fpts_pack']):
             g1.add_mpi_req(send, deps=[pack])
 
-        # If entropy filtering, pack and send the entropy values to neighbors
+        # If entropy filtering, pack and send the entropy values to neighbours
         g1.add_all(k['mpiint/ent_fpts_pack'], deps=k['eles/entropy_filter'])
         for send, pack in zip(m['ent_fpts_send'], k['mpiint/ent_fpts_pack']):
             g1.add_mpi_req(send, deps=[pack])
@@ -119,6 +121,19 @@ class BaseAdvectionDiffusionSystem(BaseAdvectionSystem):
         # Compute the transformed divergence of the partially corrected flux
         for l in k['eles/tdivtpcorf']:
             g2.add(l, deps=deps(l, 'eles/tdisf', 'eles/tdisf_fused'))
+
+        kgroup = [
+            k['eles/tgradcoru_upts'], k['eles/gradcoru_upts'],
+            k['eles/tdisf_fused'], k['eles/gradcoru_fpts'],
+            k['eles/gradcoru_qpts'], k['eles/qptsu'],
+            k['eles/tdisf'], k['eles/tdivtpcorf']
+        ]
+        for ks in zip_longest(*kgroup):
+            self._group(g2, ks, subs=[
+                [(ks[5], 'out'), (ks[6], 'u')],
+                [(ks[2], 'f'), (ks[4], 'out'), (ks[6], 'f'), (ks[7], 'b')]
+            ])
+
         g2.commit()
 
         g3 = self.backend.graph()
@@ -137,6 +152,11 @@ class BaseAdvectionDiffusionSystem(BaseAdvectionSystem):
         # Obtain the physical divergence of the corrected flux
         for l in k['eles/negdivconf']:
             g3.add(l, deps=deps(l, 'eles/tdivtconf'))
+
+        # Group tdivtconf and negdivconf kernels
+        for k1, k2 in zip_longest(k['eles/tdivtconf'], k['eles/negdivconf']):
+            self._group(g3, [k1, k2])
+
         g3.commit()
 
         return g1, g2, g3

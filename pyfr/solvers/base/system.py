@@ -46,7 +46,8 @@ class BaseSystem:
         # Get all the solution point locations for the elements
         self.ele_ploc_upts = [e.ploc_at_np('upts') for e in eles]
 
-        self.eles_vect_upts = [e._grad_upts for e in eles]
+        if hasattr(eles[0], '_vect_upts'):
+            self.eles_vect_upts = [e._vect_upts for e in eles]
 
         if hasattr(eles[0], 'entmin_int'):
             self.eles_entmin_int = [e.entmin_int for e in eles]
@@ -324,6 +325,13 @@ class BaseSystem:
 
     def get_ele_entmin_int(self):
         return [e.get() for e in self.eles_entmin_int]
+
+    def _group(self, g, kerns, subs=[]):
+        # Eliminate non-existing kernels
+        kerns = [k for k in kerns if k is not None]
+        subs = [sub for sub in subs if None not in it.chain(*sub)]
+
+        g.group(kerns, subs)
 
     def set_ele_entmin_int(self, entmin_int):
         for e, em in zip(self.eles_entmin_int, entmin_int):

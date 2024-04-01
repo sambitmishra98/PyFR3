@@ -53,9 +53,8 @@ class BaseElements:
         # If we need quadrature points or not
         haveqpts = 'flux' in self.antialias
 
-        # If we are doing gradient fusion
-        self.grad_fusion = (cfg.getbool('solver', 'grad-fusion', True) and
-                            not haveqpts)
+        # Always do gradient fusion if flux anti-aliasing is off
+        self.grad_fusion = not haveqpts
 
         # Sizes
         self.nupts = basis.nupts
@@ -226,7 +225,7 @@ class BaseElements:
 
         if 'grad_upts' in sbufs and self.grad_fusion:
             self._grad_upts = valloc('grad_upts', nupts)
-        else:
+        elif self.grad_fusion:
             self._grad_upts = self._vect_upts
 
         # Allocate the storage required by the time integrator

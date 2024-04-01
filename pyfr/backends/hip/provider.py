@@ -32,7 +32,7 @@ class HIPUnorderedMetaKernel(BaseUnorderedMetaKernel):
 
 class HIPKernelProvider(BaseKernelProvider):
     @memoize
-    def _build_kernel(self, name, src, argtypes, argn):
+    def _build_kernel(self, name, src, argtypes, argn=[]):
         return SourceModule(self.backend, src).get_function(name, argtypes)
 
     def _benchmark(self, kfunc, nbench=4, nwarmup=1):

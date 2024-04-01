@@ -66,7 +66,7 @@ class MetalKernelProvider(BaseKernelProvider):
 
         return lib
 
-    def _build_kernel(self, name, src, argtypes, argn):
+    def _build_kernel(self, name, src, argtypes, argn=[]):
         from Metal import MTLComputePipelineDescriptor, MTLSizeMake
 
         # Build the program
