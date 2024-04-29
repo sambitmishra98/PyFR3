@@ -55,7 +55,12 @@ class BaseIntegrator:
         self._plugin_wtimes = defaultdict(lambda: 0)
 
         # Abort computation
-        self.abort = False
+        self._abort = False
+        self._abort_reason = ''
+
+    def plugin_abort(self, reason):
+        self._abort = True
+        self._abort_reason = self._abort_reason or reason
 
     def _get_plugins(self, initsoln):
         plugins = []
@@ -197,10 +202,11 @@ class BaseIntegrator:
     def _check_abort(self):
         comm, rank, root = get_comm_rank_root()
 
-        if scal_coll(comm.Allreduce, int(self.abort), op=mpi.LOR):
-            self._finalise_plugins(self)
+        if scal_coll(comm.Allreduce, int(self._abort), op=mpi.LOR):
+            self._finalise_plugins()
 
-            sys.exit(1)
+            reason = self._abort_reason
+            sys.exit(comm.allreduce(reason, op=lambda x, y: x or y))
 
 
 class BaseCommon:
