@@ -291,6 +291,9 @@ class _AscentRenderer:
     def _build_blueprint(self, adapter, etype, rgn, divisors):
         comm, rank, root = get_comm_rank_root()
 
+        mesh_n = self.mesh_n
+        d_str = f'domain_{rank}_{etype}'
+
         eidx = adapter.etypes.index(etype)
         soln_op, xd = adapter.soln_op_vpts(etype, divisors)
         self._ele_regions_lin.append((d_str, eidx, rgn, soln_op))
@@ -298,37 +301,31 @@ class _AscentRenderer:
         xd = xd[..., rgn].transpose(1, 2, 0)
         neles, nsvpts  = xd.shape[1:]
 
-        mesh_n = self.mesh_n
-        ckey = f'domain_{rank}_{etype}/coordsets/coords'
-        fkey = f'domain_{rank}_{etype}/fields'
-        skey = f'domain_{rank}_{etype}/state'
-        tkey = f'domain_{rank}_{etype}/topologies/mesh'
+        mesh_n[f'{d_str}/state/domain_id'] = rank
+        mesh_n[f'{d_str}/state/config/keyword'] = 'Config'
+        mesh_n[f'{d_str}/state/config/data'] = adapter.scfg.tostr()
+        mesh_n[f'{d_str}/state/mesh_uuid/keyword'] = 'Mesh_UUID'
+        mesh_n[f'{d_str}/state/mesh_uuid/data'] = adapter.mesh_uuid
 
-        mesh_n[f'{skey}/domain_id'] = rank
-        mesh_n[f'{skey}/config/keyword'] = 'Config'
-        mesh_n[f'{skey}/config/data'] = adapter.scfg.tostr()
-        mesh_n[f'{skey}/mesh_uuid/keyword'] = 'Mesh_UUID'
-        mesh_n[f'{skey}/mesh_uuid/data'] = adapter.mesh_uuid
-
-        mesh_n[f'{ckey}/type'] = 'explicit'
-        mesh_n[f'{tkey}/coordset'] = 'coords'
-        mesh_n[f'{tkey}/type'] = 'unstructured'
-        mesh_n[f'{tkey}/elements/shape'] = self.bp_emap[etype]
+        mesh_n[f'{d_str}/coordsets/coords/type'] = 'explicit'
+        mesh_n[f'{d_str}/topologies/mesh/coordset'] = 'coords'
+        mesh_n[f'{d_str}/topologies/mesh/type'] = 'unstructured'
+        mesh_n[f'{d_str}/topologies/mesh/elements/shape'] = self.bp_emap[etype]
 
         for l, x in zip('xyz', xd.reshape(adapter.ndims, -1)):
-            mesh_n[f'{ckey}/values/{l}'] = x
+            mesh_n[f'{d_str}/coordsets/coords/values/{l}'] = x
 
         subdvcls = subclass_where(BaseShapeSubDiv, name=etype)
         nodes = subdvcls.subnodes(divisors[etype])
 
         subdivcon = np.tile(nodes, (neles, 1))
-        subdivcon += (np.arange(neles)*len(nodes))[:, None]
-        mesh_n[f'{tkey}/elements/connectivity'] = subdivcon
+        subdivcon += (np.arange(neles)*nsvpts)[:, None]
+        mesh_n[f'{d_str}/topologies/mesh/elements/connectivity'] = subdivcon
 
         for field, path, expr in self._exprs:
-            mesh_n[f'{fkey}/{field}/association'] = 'vertex'
-            mesh_n[f'{fkey}/{field}/volume_dependent'] = 'false'
-            mesh_n[f'{fkey}/{field}/topology'] = 'mesh'
+            mesh_n[f'{d_str}/fields/{field}/association'] = 'vertex'
+            mesh_n[f'{d_str}/fields/{field}/volume_dependent'] = 'false'
+            mesh_n[f'{d_str}/fields/{field}/topology'] = 'mesh'
 
     def _init_ascent(self, adapter):
         comm, rank, root = get_comm_rank_root()
@@ -434,7 +431,7 @@ class _AscentRenderer:
         elementscls = adapter.elementscls
 
         # Get the primitive variable names
-        pames = elementscls.privars(adapter.ndims, adapter.scfg)
+        pnames = elementscls.privars(adapter.ndims, adapter.scfg)
 
         # Obtain the solution
         soln = adapter.soln
