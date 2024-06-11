@@ -39,6 +39,7 @@ class BaseSystem:
         self.ele_banks = [e.scal_upts for e in eles]
         self.ele_types = list(elemap)
         self.ele_ndofs = [e.neles*e.nupts*e.nvars for e in eles]
+        self.etype_ndofs = {etype: e.neles*e.nupts*e.nvars for etype, e in elemap.items()}
         self.ele_shapes = {etype: (e.nupts, e.nvars, e.neles)
                            for etype, e in elemap.items()}
 

@@ -4,10 +4,13 @@ import numpy as np
 from pyfr.backends.base import NotSuitableError
 from pyfr.backends.opencl.provider import OpenCLKernel, OpenCLKernelProvider
 
+from pyfr.util import digest 
+
 
 class OpenCLGiMMiKKernels(OpenCLKernelProvider):
     def __init__(self, backend):
         super().__init__(backend)
+        self.cfg = backend.cfg
 
         # Maximum number of non-zeros
         self.max_nnz = backend.cfg.getint('backend-opencl', 'gimmik-max-nnz',
@@ -23,6 +26,26 @@ class OpenCLGiMMiKKernels(OpenCLKernelProvider):
         self._mul_kerns = {}
 
     def mul(self, a, b, out, alpha=1.0, beta=0.0):
+
+        # Matrix a has one tag starting with M. Get that tag.
+        matrix_tag = next(tag for tag in a.tags if tag.startswith('M'))
+
+        # Modify a few of them 
+        if matrix_tag == 'M1 - M3*M2':
+            matrix_tag = 'M132'
+        elif matrix_tag == 'M4 - M6*M0':
+            matrix_tag = 'M460'
+            
+        kerns = self.cfg.getliteral('backend-opencl', f'gimmik-kerns-{matrix_tag}', [-1])
+        # kerns is supposed to be a list of integers, with each entry between 0 to 9
+        # If given input 123, it will be converted to [1, 2, 3]
+        # If input is -1, then it will be converted to [-1]
+
+#        if kerns == -1:
+#            kerns = [-1,]
+#        else:
+#            kerns = [0,] + [int(k) for k in kerns]
+#
         # Ensure the matrices are compatible
         if a.nrow != out.nrow or a.ncol != b.nrow or b.ncol != out.ncol:
             raise ValueError('Incompatible matrices for out = a*b')
@@ -60,6 +83,7 @@ class OpenCLGiMMiKKernels(OpenCLKernelProvider):
             kname = f'gimmik_mm_{arr.shape[0]}x{arr.shape[1]}'
             local_mem_size = self.backend.cl.dev.local_mem_size
             best_kern = None
+            chosen_kern = None
             sdata = None
 
             # Save a copy of the contents of the output matrix
@@ -88,9 +112,28 @@ class OpenCLGiMMiKKernels(OpenCLKernelProvider):
                         nbench=self.nbench
                     )
 
-                    if best_kern is None or dt < best_kern[-1]:
-                        best_kern = kern, gs, ls, dt
+                    self.backend.bench_kern |= {
+                                f'{kname}_a-tags': matrix_tag,
+                                f'{kname}_a-rows': a.nrow, 
+                                f'{kname}_a-cols': a.ncol,
+                                f'{kname}_b-cols': b.ncol,
+                                f'{kname}_nnz': np.count_nonzero(arr),
+                                f'test-{i}_{kname}_gs-grid': gs, 
+                                f'test-{i}_{kname}_ls-block-tgrp': ls,
+                                f'test-{i}_{kname}_Runtime': dt
+                                }
 
+                    if best_kern is None or dt < best_kern[-1]:
+                        if i in kerns:
+                            self.backend.bench_kern |= {f'best-{kname}': i}
+                            best_kern = kern, gs, ls, dt
+                        else:
+                            print(f'Skipping {kname} {self.backend.bench_kern[f"{kname}_a-tags"]} {i}')
+
+#                        if i in kerns:
+#                            self.backend.bench_kern |= {f'chosen-{kname}': i}                            
+#                            chosen_kern = kern, gs, ls, dt
+#
                     sdata = {'runtime': dt}
             except StopIteration:
                 pass

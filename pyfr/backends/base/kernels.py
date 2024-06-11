@@ -59,6 +59,7 @@ class BaseKernelProvider:
     def __init__(self, backend):
         self.backend = backend
 
+        self.backend.bench_kern = {}
 
 class BasePointwiseKernelProvider(BaseKernelProvider):
     kernel_generator_cls = None

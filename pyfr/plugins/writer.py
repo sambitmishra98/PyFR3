@@ -41,6 +41,10 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         self.dt_out = self.cfg.getfloat(cfgsect, 'dt-out')
         self.tout_last = intg.tcurr
 
+        self.minimal_writing = self.cfg.getbool(cfgsect, 'minimal-writing', False)
+        self.nan_check = self.cfg.getbool(cfgsect, 'nan-check', False)
+        self.nan_yet = False
+
         # Output field names
         self.fields = first(intg.system.ele_map.values()).convars
         if self._write_grads:
@@ -64,6 +68,14 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         stats = Inifile()
         stats.set('data', 'fields', ','.join(self.fields))
         stats.set('data', 'prefix', 'soln')
+        if self.nan_check:
+            if self.nan_yet:
+                print('STOP SIMULATION !!!')
+                intg.plugin_abort(f'NaNs detected at t = {intg.tcurr}')
+            else:
+                self.nan_yet = any(np.isnan(np.sum(s)) for s in intg.soln)
+                stats.set('data', 'nan-in-solution', self.nan_yet)
+
         intg.collect_stats(stats)
 
         # If we are the root rank then prepare the metadata
@@ -124,7 +136,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
 
         # Write out the file
         self._writer.write(data, intg.tcurr, metadata, self._async_timeout,
-                           callback)
+                           callback, self.minimal_writing)
 
         # Update the last output time
         self.tout_last = intg.tcurr

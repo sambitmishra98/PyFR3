@@ -21,6 +21,9 @@ class OpenCLBackend(BaseBackend):
         devid = cfg.get('backend-opencl', 'device-id', 'local-rank').lower()
         devtype = cfg.get('backend-opencl', 'device-type', 'all').upper()
 
+        self.enable_clblast = cfg.getbool('backend-opencl', 'enable-clblast', False)
+        self.enable_tinytc = cfg.getbool('backend-opencl', 'enable-tinytc', False)
+        self.enable_gimmik = cfg.getbool('backend-opencl', 'enable-gimmik', True)
         # Handle the local-rank case
         if devid == 'local-rank':
             devid = str(get_local_rank())
@@ -44,6 +47,8 @@ class OpenCLBackend(BaseBackend):
         if self.fpdtype == np.float64 and not device.has_fp64:
             raise ValueError('Device does not support double precision')
 
+        self.device_name = str(platform.name) + ' - ' + str(device.name)
+
         # Set the device
         self.cl.set_device(device)
 
@@ -55,7 +60,7 @@ class OpenCLBackend(BaseBackend):
         self.csubsz = self.soasz
 
         from pyfr.backends.opencl import (blasext, clblast, gimmik, packing,
-                                          provider, types)
+                                          provider, tinytc, types)
 
         # Register our data types and meta kernels
         self.const_matrix_cls = types.OpenCLConstMatrix
@@ -71,15 +76,29 @@ class OpenCLBackend(BaseBackend):
         # Instantiate the base kernel providers
         kprovs = [provider.OpenCLPointwiseKernelProvider,
                   blasext.OpenCLBlasExtKernels,
-                  packing.OpenCLPackingKernels,
-                  gimmik.OpenCLGiMMiKKernels]
+                  packing.OpenCLPackingKernels]
         self._providers = [k(self) for k in kprovs]
 
-        # Load CLBlast if available
-        try:
-            self._providers.append(clblast.OpenCLCLBlastKernels(self))
-        except OSError:
-            pass
+        if self.enable_clblast:
+            try:
+                self._providers.append(clblast.OpenCLCLBlastKernels(self))
+                print('Using CLBlast kernels')
+            except OSError:
+                pass
+
+        if self.enable_gimmik:
+            try:
+                self._providers.append(gimmik.OpenCLGiMMiKKernels(self))
+                print('Using GiMMiK kernels')
+            except OSError:
+                pass
+
+        if self.enable_tinytc:
+            try:
+                self._providers.append(tinytc.OpenCLTinyTCKernels(self))
+                print('Using TinyTC kernels')
+            except OSError:
+                pass
 
         # Pointwise kernels
         self.pointwise = self._providers[0]
