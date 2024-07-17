@@ -41,6 +41,8 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         self.dt_out = self.cfg.getfloat(cfgsect, 'dt-out')
         self.tout_last = intg.tcurr
 
+        self.minimal_writing = self.cfg.getbool(cfgsect, 'minimal-writing', False)
+
         # Output field names
         self.fields = first(intg.system.ele_map.values()).convars
         if self._write_grads:

@@ -82,8 +82,11 @@ class NativeWriter:
             self._awriter.wait()
             self._awriter = None
 
-    def write(self, data, tcurr, metadata=None, timeout=0, callback=None):
+    def write(self, data, tcurr, metadata=None, timeout=0, callback=None, minimal_writing = False):
         async_ = bool(timeout)
+
+        self.minimal_writing = minimal_writing
+
         comm, rank, root = get_comm_rank_root()
 
         # Wait for any existing write operations to finish

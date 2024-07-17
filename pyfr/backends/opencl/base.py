@@ -44,6 +44,8 @@ class OpenCLBackend(BaseBackend):
         if self.fpdtype == np.float64 and not device.has_fp64:
             raise ValueError('Device does not support double precision')
 
+        self.device_name = str(platform.name) + ' - ' + str(device.name)
+
         # Set the device
         self.cl.set_device(device)
 

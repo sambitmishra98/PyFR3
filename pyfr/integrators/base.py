@@ -1,6 +1,8 @@
 from collections import defaultdict, deque
 import itertools as it
+import os
 import re
+import subprocess
 import sys
 import time
 
@@ -49,6 +51,7 @@ class BaseIntegrator:
 
         # Record the starting wall clock time
         self._wstart = time.time()
+        self._wprev = self.wtime = 0.
 
         # Record the total amount of time spent in each plugin
         self._plugin_wtimes = defaultdict(lambda: 0)
@@ -154,6 +157,110 @@ class BaseIntegrator:
     def nsteps(self):
         return self.nacptsteps + self.nrjctsteps
 
+    def collect_a_device_on_node(self, stats):
+
+        # Get device name at rank 0. This would suffice for homogenous nodes.
+        if self.backend.name == 'cuda':
+            device_name = subprocess.check_output(
+                ["lspci", "-d", "10de::0300", "-nn"], universal_newlines=True)
+        elif self.backend.name == 'hip':
+            device_name = subprocess.check_output(
+                ["lspci", "-d", "1002::0300", "-nn"], universal_newlines=True)
+        elif self.backend.name == 'opencl':
+            device_name = self.backend.device_name
+        elif self.backend.name == 'openmp':
+             # Get the device name using lscpu
+            device_name = subprocess.check_output(
+                ["lscpu"], universal_newlines=True).split('\n')
+            device_name = [x for x in device_name if 'Model name' in x]
+            device_name = device_name[0].split(':')[-1].strip()
+        else:
+            raise ValueError(f"Unknown backend {self.backend.name}")
+
+        stats.set('simulation', f'rank-0', device_name)
+
+        return stats
+
+    def collect_sim_details(self, sim_rep_stats):
+
+#        sim_rep_stats = self.collect_device_on_node(sim_rep_stats)
+
+        comm, rank, root = get_comm_rank_root()
+
+        sim_rep_stats = self.collect_a_device_on_node(sim_rep_stats)
+
+        # Get the mesh file name
+        sim_rep_stats.set('simulation', 'mesh-file', self.system.mesh.fname)
+
+        ndofs_total = 0
+        for etype, *ndofs in self.system.etype_ndofs.items():
+            ndof = sum(ndofs)
+            ndofs = comm.allreduce(*ndofs, op=mpi.SUM)
+            sim_rep_stats.set('simulation', f'ndofs-{etype}', ndofs)
+            ndofs_total += ndofs
+        sim_rep_stats.set('simulation', 'ndofs-total', ndofs_total)
+
+        # Name the set of simulations
+        sim_rep_stats.set('configuration', 'test-name', None)
+
+        # Save the time of execution
+        sim_rep_stats.set('simulation', 'time-of-execution',
+                            time.strftime('%Y-%m-%d %H:%M:%S'))
+
+        # Print directory that the code is present in
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        cwd = os.path.abspath(os.path.join(cwd,
+                                           os.pardir, os.pardir))
+
+        # Expose the exact version of source code.
+        source_code_label = subprocess.check_output(
+            ["git", "describe", "--always", "--abbrev=40"], cwd=cwd)
+        sim_rep_stats.set('simulation', 'source-code-git-label',
+                  source_code_label.strip().decode('utf-8'))
+
+        # Save the environment variables that are set
+        for k, v in os.environ.items():
+            try:
+                # Get all the environment variables that match
+                sim_rep_stats.set('environment', k, v)
+
+                if 'SLURM_JOB_ID' in k:
+
+                    # Get the job id
+                    job_id = v
+
+                    # Store the job script using a subprocess: scontrol write batch_script ${SLURM_JOB_ID} -
+                    job_script = subprocess.check_output(
+                        ["scontrol", "write", "batch_script", job_id, "-"], universal_newlines=True)
+                    sim_rep_stats.set('slurm-job', 'script', job_script)
+
+            except ValueError:
+                pass
+
+        return sim_rep_stats
+
+    def collect_kernel_benchmark_details(self, benchmark_stats):
+        # Add to the benchmark_stats
+        for k, v in self.backend.bench_kern.items():
+
+            benchmark_stats.set('kernels', k, v)
+
+    #        2*row['nnz']*row['b.ncol']/row['Runtime']/1e12
+
+            if 'Runtime' in k:
+
+                kname = k.split('_')[:-1]
+                kname = '_'.join(kname)
+
+                nnz = self.backend.bench_kern[kname + '_nnz']
+                b = self.backend.bench_kern[kname + '_b-cols']
+
+                performance = 2*nnz*b/v
+
+                benchmark_stats.set('benchmark', kname, performance)
+
+        return benchmark_stats
+
     def collect_stats(self, stats):
         wtime = time.time() - self._wstart
 
@@ -168,6 +275,17 @@ class BaseIntegrator:
                 k += f'-{psuffix}'
 
             stats.set('solver-time-integrator', k, t)
+
+        # Pythonic way to add up all the plugin wall times
+        plugin_wtime_total = sum(self._plugin_wtimes.values())
+
+        # Extract wall-time spent towards compute only
+        self.wdiff = wtime - plugin_wtime_total - self._wprev
+        self._wprev = wtime - plugin_wtime_total
+
+        stats = self.collect_sim_details(stats)
+
+        stats = self.collect_kernel_benchmark_details(stats)
 
         # Step counts
         stats.set('solver-time-integrator', 'nsteps', self.nsteps)

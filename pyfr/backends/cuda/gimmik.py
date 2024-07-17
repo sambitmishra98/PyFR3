@@ -88,6 +88,19 @@ class CUDAGiMMiKKernels(CUDAKernelProvider):
                     if best_kern is None or dt < best_kern[-1]:
                         best_kern = kern, meta['grid'], meta['block'], dt
 
+                        self.backend.bench_kern |= {
+                                   f'{kname}_a-rows': a.nrow,
+                                   f'{kname}_a-cols': a.ncol,
+                                   f'{kname}_b-rows': b.nrow,
+                                   f'{kname}_b-cols': b.ncol,
+                                   f'{kname}_out-rows': out.nrow,
+                                   f'{kname}_out-cols': out.ncol,
+                                   f'{kname}_nz': a.nrow*a.ncol-np.count_nonzero(arr),
+                                   f'{kname}_nnz': np.count_nonzero(arr),
+                                   f'{kname}_gs-grid': meta['grid'],
+                                   f'{kname}_ls-block-tgrp': meta['block'],
+                                   f'{kname}_Runtime': dt}
+
                     kdata = {
                         'runtime': dt,
                         'registers': kern.nreg,
