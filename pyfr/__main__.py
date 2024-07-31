@@ -43,6 +43,10 @@ def main():
                            'from the extension of inmesh')
     ap_import.add_argument('-l', dest='lintol', type=float, default=1e-5,
                            help='linearisation tolerance')
+    ap_import.add_argument('-r', dest='prismtol', type=float, default=1e-10,
+                           help='Prism rectangle bases round off')
+    ap_import.add_argument('-c', dest='prismcutfreq', type=float, default=0,
+                           help='Prism rectangle bases group frequency')
     ap_import.set_defaults(process=process_import)
 
     # Partition command
@@ -135,7 +139,7 @@ def process_import(args):
         reader = get_reader_by_extn(extn, args.inmesh, args.progress)
 
     # Get the mesh in the PyFR format
-    mesh = reader.to_pyfrm(args.lintol)
+    mesh = reader.to_pyfrm(args.lintol, args.prismtol, args.prismcutfreq)
 
     # Save to disk
     with args.progress.start('Write mesh'):

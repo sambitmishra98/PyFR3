@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import chain
 from uuid import UUID
 
@@ -15,11 +15,11 @@ class BaseReader:
     def __init__(self):
         pass
 
-    def _to_raw_pyfrm(self, lintol):
+    def _to_raw_pyfrm(self, lintol, prismtol, prismcutfreq):
         pass
 
-    def to_pyfrm(self, lintol):
-        mesh = self._to_raw_pyfrm(lintol)
+    def to_pyfrm(self, lintol, prismtol, prismcutfreq):
+        mesh = self._to_raw_pyfrm(lintol, prismtol, prismcutfreq)
 
         # Add metadata
         mesh['mesh_uuid'] = np.array(str(UUID(digest(mesh)[:32])), dtype='S')
@@ -46,11 +46,51 @@ class NodalMeshAssembler:
     _petype_focount = {'line': 2, 'tri': 3, 'quad': 4,
                        'tet': 4, 'pyr': 5, 'pri': 6, 'hex': 8}
 
-    def __init__(self, nodepts, elenodes, pents, maps):
+    def __init__(self, nodepts, elenodes, pents, maps, prismtol, prismcutfreq):
         self._nodepts = nodepts
         self._elenodes = elenodes
         self._felespent, self._bfacespents, self._pfacespents = pents
         self._etype_map, self._petype_fnmap, self._nodemaps = maps
+
+        # Towards pyramids with slightly offset rectangle bases
+        self._prismtol     = prismtol
+        self._prismcutfreq = prismcutfreq
+
+    def modify_fpts(self, fpts_old):
+
+        # Copy the input array to avoid modifying the original array
+        fpts = fpts_old.copy()
+
+        # Round off to 1e-10
+        fpts = np.round(fpts, self._prismtol)
+
+        if self._prismtol == 0:
+            return fpts
+
+        for vertex_id in range(fpts.shape[0]):
+            for col in range(fpts.shape[2]):
+                column = fpts[vertex_id, :, col]
+
+                frequency_counts = Counter(column)
+                frequent_values = [value for value, count in frequency_counts.items() if count > self._prismcutfreq]
+
+                if len(frequent_values) == 0:
+                    continue
+
+                frequent_values = np.array(frequent_values)
+
+                def find_nearest_frequent_value(val, freq_values):
+                    return frequent_values[np.argmin(np.abs(freq_values - val))]
+
+                modified_column = np.array([
+                    find_nearest_frequent_value(val, frequent_values)
+                    if frequency_counts[val] <= self._prismcutfreq else val
+                    for val in column
+                ])
+
+                fpts[vertex_id, :, col] = modified_column
+
+        return fpts
 
     def _check_pyr_parallelogram(self, foeles):
         # Find PyFR node map for the quad face
@@ -58,6 +98,25 @@ class NodalMeshAssembler:
         pfnmap = [self._nodemaps['quad', 4][i] for i in fnmap]
 
         # Face nodes
+        fpts_old = self._nodepts[foeles[:, pfnmap]].swapaxes(0, 1)
+
+        # Count the total number of fpts that have nonparalellogram bases
+        tot_nons = np.sum(np.abs(fpts_old[0] - fpts_old[1] - fpts_old[2] + fpts_old[3]) > 1e-10)
+        print(f"Total number of non-parallelogram bases: {tot_nons}")
+
+        # fix the non-parallelogram bases
+        new_fpts = self.modify_fpts(fpts_old)
+
+        initial_non_parallelograms = np.sum(np.abs(fpts_old[0] - fpts_old[1] - fpts_old[2] + fpts_old[3]) > 1e-10)
+        print(f"Total non-parallelogram bases: {initial_non_parallelograms}")
+
+        modified_non_parallelograms = np.sum(np.abs(new_fpts[0] - new_fpts[1] - new_fpts[2] + new_fpts[3]) > 1e-10)
+        print(f"Total non-parallelogram bases after modification: {modified_non_parallelograms}")
+
+        # Modify self._nodepts with the new_fpts values for the quad face of the pyr element type 
+        self._nodepts[foeles[:, pfnmap]] = new_fpts.swapaxes(0, 1)
+
+        # Repeat again to be sure that the modification is correct
         fpts = self._nodepts[foeles[:, pfnmap]].swapaxes(0, 1)
 
         # Check if parallelogram or not

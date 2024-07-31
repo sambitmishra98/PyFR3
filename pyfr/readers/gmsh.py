@@ -414,11 +414,12 @@ class GmshReader(BaseReader):
 
         self._elenodes = {k: np.array(v) for k, v in elenodes.items()}
 
-    def _to_raw_pyfrm(self, lintol):
+    def _to_raw_pyfrm(self, lintol, prismtol, prismcutfreq):
         # Assemble a nodal mesh
         maps = self._etype_map, self._petype_fnmap, self._nodemaps
         pents = self._felespent, self._bfacespents, self._pfacespents
-        mesh = NodalMeshAssembler(self._nodepts, self._elenodes, pents, maps)
+        mesh = NodalMeshAssembler(self._nodepts, self._elenodes, pents, maps,
+                                  prismtol, prismcutfreq)
 
         with self.progress.start_with_spinner('Processing connectivity') as p:
             pyfrm = mesh.get_connectivity(p)
