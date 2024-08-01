@@ -12,7 +12,7 @@ class BaseDualController(BaseDualIntegrator):
         if not self.isrestart:
             self._run_plugins()
 
-    def _accept_step(self, dt, idxcurr):
+    def _accept_step(self, dt, idxcurr, err=None):
         self.tcurr += dt
         self.nacptsteps += 1
         self.nacptchain += 1
@@ -28,6 +28,16 @@ class BaseDualController(BaseDualIntegrator):
 
         # Clear the pseudo step info
         self.pseudointegrator.pseudostepinfo = []
+
+    def _reject_step(self, dt, idxold, err = None):
+
+        if dt <= 1e-12:
+            raise RuntimeError('Minimum sized time step rejected')
+
+        self.nacptchain = 0
+        self.nrjctsteps += 1
+
+        self.pseudointegrator._idxcurr = idxold
 
 
 class DualNoneController(BaseDualController):
