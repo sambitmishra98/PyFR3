@@ -37,7 +37,6 @@ class BaseDIRKStepper(BaseDualStepper):
 
         if self.stepper_has_errest:
             s = self.nstages
-            print(self.nstages)
             sc = [(b - bh)*dt for b, bh in zip(self.b, self.bhat)]
             self.pseudointegrator.init_stage(s, sc, dt)
             self.pseudointegrator.pseudo_advance(t + dt)
