@@ -48,6 +48,8 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         self.dtau = cfg.getfloat(sect, 'pseudo-dt')
         self.dtauf = cfg.getfloat(mgsect, 'pseudo-dt-fact', 1.0)
 
+        self.rewind_iter = cfg.getint(mgsect, 'rewind-iteration', 0)
+
         self._maxniters = cfg.getint(sect, 'pseudo-niters-max', 0)
         self._minniters = cfg.getint(sect, 'pseudo-niters-min', 0)
 
@@ -303,7 +305,20 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
         self.tcurr = tcurr
 
+        # Load last saved dtau_mats
+        if self.rewind_iter > 0:
+            for l in self.levels :
+                self.pintgs[l].rewind_dtau_mats()
+
         for i in range(self._maxniters):
+
+            # If we are at rewind-iteration, save it now.
+            if i == self.rewind_iter and self.rewind_iter > 0:
+                # Save dtau_mats
+                for l in self.levels:
+                    self.pintgs[l].save_dtau_mats()
+
+
             # Choose either ⌊c⌋ or ⌈c⌉ in a way that the average is c
             csteps = [int(c + (self._fgen.random() < c % 1)) for c in cstepsf]
 
