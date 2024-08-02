@@ -6,6 +6,7 @@ from pyfr.plugins.fluidforce import FluidForcePlugin
 from pyfr.plugins.fwh import FWHPlugin
 from pyfr.plugins.integrate import IntegratePlugin
 from pyfr.plugins.nancheck import NaNCheckPlugin
+from pyfr.plugins.optimisationstats import OptimisationStatsPlugin
 from pyfr.plugins.pseudostats import PseudoStatsPlugin
 from pyfr.plugins.pseudodtwriter import PseudodtWriterPlugin
 from pyfr.plugins.pseudodtstats import PseudodtStatsPlugin

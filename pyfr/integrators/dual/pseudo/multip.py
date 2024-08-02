@@ -315,7 +315,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
                 self.pintgs[l].rewind_dtau_mats()
 
         # Use multiplier 
-        self.muliply_dtau(self.pintg.multiplier)
+        self.multiply_dtau(self.pintg.multiplier)
 
         for i in range(self._maxniters):
 

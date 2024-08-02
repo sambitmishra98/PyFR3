@@ -1,5 +1,9 @@
-from pyfr.integrators.dual.phys.base import BaseDualIntegrator
+from time import perf_counter
 
+import numpy as np
+
+from pyfr.integrators.dual.phys.base import BaseDualIntegrator
+from pyfr.mpiutil import mpi, get_comm_rank_root
 
 class BaseDualController(BaseDualIntegrator):
     def __init__(self, *args, **kwargs):
@@ -11,6 +15,10 @@ class BaseDualController(BaseDualIntegrator):
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
+
+        self._compute_time = 0.
+
+        self.comm, self.rank, self.root = get_comm_rank_root()
 
     def _accept_step(self, dt, idxcurr, err=None):
         self.tcurr += dt
@@ -55,8 +63,18 @@ class DualNoneController(BaseDualController):
             # Decide on the pseudo time step
             self.pseudointegrator.adjust_dtau(self.dt)
 
+            ctime_start = perf_counter() 
+
             # Take the physical step
             self.step(self.tcurr, self.dt)
+
+            delta_time = perf_counter() - ctime_start
+
+            # Convert to a format that can be reduced
+            delta_time = np.array(delta_time)
+
+            self.comm.Allreduce(mpi.IN_PLACE, delta_time, op=mpi.MAX)
+            self._compute_time += delta_time
 
             # We are not adaptive, so accept every step
             self._accept_step(self.dt, self.pseudointegrator._idxcurr)
