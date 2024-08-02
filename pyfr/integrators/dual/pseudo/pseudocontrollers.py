@@ -68,6 +68,8 @@ class BaseDualPseudoController(BaseDualPseudoIntegrator):
     def adjust_dtau(self, dt):
         self.dtau = dt / self._dt_dtau_ratio
 
+    def multiply_dtau(self, y):
+        self.dtau = y * self.dtau
 
 class DualNonePseudoController(BaseDualPseudoController):
     pseudo_controller_name = 'none'
@@ -116,6 +118,9 @@ class DualPIPseudoController(BaseDualPseudoController):
         dtau_minf = self.cfg.getfloat(sect, 'pseudo-dt-min-mult', 1.0)
         dtau_maxf = self.cfg.getfloat(sect, 'pseudo-dt-max-mult', 3.0)
 
+        # multiplier at stage start
+        self.multiplier = self.cfg.getfloat(sect, 'pseudo-dt-stage-multiplier', 1.0)
+
         self.dtau_min = dtau_minf*self.dtau
         self.dtau_max = dtau_maxf*self.dtau
 
@@ -158,6 +163,14 @@ class DualPIPseudoController(BaseDualPseudoController):
         self.dtau_min *= ratio
         self.dtau_max *= ratio
         self._dtau_fieldf = ratio
+        self.bind_dtau()
+
+    def multiply_dtau(self, y):
+        self.dtau = y * self.dtau
+
+        self.dtau_min *= y
+        self.dtau_max *= y
+        self._dtau_fieldf = y
         self.bind_dtau()
 
     def bind_dtau(self):

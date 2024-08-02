@@ -294,6 +294,10 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         for l in self.levels:
             self.pintgs[l].adjust_dtau(dt)
 
+    def multiply_dtau(self, y):
+        for l in self.levels:
+            self.pintgs[l].multiply_dtau(y)
+
     def pseudo_advance(self, tcurr):
         # Multigrid levels and step counts
         cycle, cstepsf = self.cycle, self.csteps
@@ -309,6 +313,9 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         if self.rewind_iter > 0:
             for l in self.levels :
                 self.pintgs[l].rewind_dtau_mats()
+
+        # Use multiplier 
+        self.muliply_dtau(self.pintg.multiplier)
 
         for i in range(self._maxniters):
 
