@@ -12,10 +12,11 @@ class ModifyConfigPlugin(BaseSolnPlugin):
 
         self.comm, self.rank, self.root = get_comm_rank_root()
 
-        if intg.opt_type == 'onfline':
-            print("Offline optimisation modification is performed at runtime.")
-        elif intg.opt_type == 'online':
-            print("Online optimisation modification.")
+        if self.rank == self.root:
+            if intg.opt_type == 'onfline':
+                print("Offline optimisation modification is performed at runtime.")
+            elif intg.opt_type == 'online':
+                print("Online optimisation modification.")
 
         intg.candidate = {}
 
