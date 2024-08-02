@@ -6,7 +6,6 @@ from pyfr.plugins.fluidforce import FluidForcePlugin
 from pyfr.plugins.fwh import FWHPlugin
 from pyfr.plugins.integrate import IntegratePlugin
 from pyfr.plugins.nancheck import NaNCheckPlugin
-from pyfr.plugins.optimisationstats import OptimisationStatsPlugin
 from pyfr.plugins.pseudostats import PseudoStatsPlugin
 from pyfr.plugins.pseudodtwriter import PseudodtWriterPlugin
 from pyfr.plugins.pseudodtstats import PseudodtStatsPlugin
@@ -18,6 +17,8 @@ from pyfr.plugins.turbulence import TurbulencePlugin
 from pyfr.plugins.writer import WriterPlugin
 from pyfr.util import subclass_where
 
+from pyfr.plugins.optimisationstats import OptimisationStatsPlugin
+from pyfr.plugins.bayesianoptimisation import BayesianOptimisationPlugin
 
 def get_plugin(prefix, name, *args, **kwargs):
     cls = subclass_where(BasePlugin, prefix=prefix, name=name)
