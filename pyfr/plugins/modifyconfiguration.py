@@ -63,8 +63,8 @@ class ModifyConfigPlugin(BaseSolnPlugin):
                     elif key.startswith( "pseudo-dt-max:") and key[14:].isdigit(): dtau_maxs[int(key[14:])] = value
 
                     # Non-array optimisables
-                    elif key.startswith( "pseudo-dt-max"): intg.pseudointegrator.pintg.Δτᴹ = value
-                    elif key.startswith("pseudo-dt-fact"): intg.pseudointegrator.dtauf     = value
+                    elif key.startswith( "pseudo-dt-max"): intg.pseudointegrator.pintg.dtau_max = value
+                    elif key.startswith("pseudo-dt-fact"): intg.pseudointegrator.dtauf          = value
                     else:
                         raise ValueError(f"Unknown key: {key}")
 
