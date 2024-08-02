@@ -274,7 +274,7 @@ class BayesianOptimisationPlugin(BaseSolnPlugin):
                         t1[f'b-{i}'] = val
 
             t1['opt-time']          = perf_counter() - opt_time_start
-            t1['cumm-compute-time'] = intg.pseudointegrator._compute_time
+            t1['cumm-compute-time'] = intg._compute_time
             t1['capture-window']    = intg.actually_captured
             t1[self.index_name] = tcurr if self.opt_type == 'online' else len(self.df_train.index)+1
 
@@ -339,7 +339,7 @@ class BayesianOptimisationPlugin(BaseSolnPlugin):
 
         from gpytorch.mlls             import ExactMarginalLogLikelihood
         from botorch.models            import SingleTaskGP
-        from botorch.fit               import fit_gpytorch_model as fit_model
+        from botorch.fit               import fit_gpytorch_mll as fit_model
         from botorch.models.transforms import Standardize, Normalize
 
         self.normalise = Normalize(d=tX.shape[1], bounds=self._bnds)
