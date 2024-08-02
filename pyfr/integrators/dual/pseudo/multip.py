@@ -172,6 +172,15 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
     def _subdims(self):
         return self.pintg._subdims
 
+    def save_dtau(self):
+        return self.pintg.save_dtau()
+
+    def rewind_dtau(self):
+        return self.pintg.rewind_dtau()
+
+    def reset_dtau(self):
+        return self.pintg.reset_dtau()
+
     @property
     def pintg(self):
         return self.pintgs[self.level]
@@ -312,7 +321,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
         # Load last saved dtau_mats
         if self.rewind_iter > 0:
             for l in self.levels :
-                self.pintgs[l].rewind_dtau_mats()
+                self.pintgs[l].rewind_dtau()
 
         # Use multiplier 
         self.multiply_dtau(self.pintg.multiplier)
@@ -323,7 +332,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
             if i == self.rewind_iter and self.rewind_iter > 0:
                 # Save dtau_mats
                 for l in self.levels:
-                    self.pintgs[l].save_dtau_mats()
+                    self.pintgs[l].save_dtau()
 
 
             # Choose either ⌊c⌋ or ⌈c⌉ in a way that the average is c

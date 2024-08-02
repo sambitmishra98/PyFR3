@@ -202,11 +202,18 @@ class DualEmbeddedPairPseudoStepper(BaseDualPseudoStepper):
     def dtau_mats(self):
         return [dtau_mat.get() for dtau_mat in self.dtau_upts]
 
-    def save_dtau_mats(self):
+    def save_dtau(self):
         self.dtau_mats_saved = [dtau_mat.get() for dtau_mat in self.dtau_upts]
 
-    def rewind_dtau_mats(self):
+    def rewind_dtau(self):
         [dtau_mat.set(saved_dtau_mat) for dtau_mat, saved_dtau_mat in zip(self.dtau_upts, self.dtau_mats_saved)]
+
+    @dtau_mats.setter
+    def dtau_mats(self, y):
+        [dtau_mat.set(y*np.ones_like(saved_dtau_mat)) for dtau_mat, saved_dtau_mat in zip(self.dtau_upts, self.dtau_mats_saved)]
+
+    def reset_dtau(self):
+        self.dtau_mats = self.dtau
 
     @memoize
     def _get_rkvdh2pseudo_kerns(self, stage, r1, r2, rold, rerr=None):

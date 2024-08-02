@@ -14,10 +14,10 @@ class RewindPlugin(BaseSolnPlugin):
 
         self.if_rewind = self.cfg.getbool(self.cfgsect, 'if-rewind', False)
 
-        if self.rewind_dtau:
-            self.Δτᵢ = self.cfg.get('solver-time-integrator', 'pseudo-dt')
+        #if self.rewind_dtau:
+        #    self.Δτᵢ = self.cfg.get('solver-time-integrator', 'pseudo-dt')
 
-        self.rewind_multip_Δτ = intg.cfg.hasopt('solver-dual-time-integrator-multip', 'cycle')
+        #self.rewind_multip_Δτ = intg.cfg.hasopt('solver-dual-time-integrator-multip', 'cycle')
 
         # Enable saving of solution
         intg.save   = True
