@@ -19,6 +19,7 @@ from pyfr.util import subclass_where
 
 from pyfr.plugins.optimisationstats import OptimisationStatsPlugin
 from pyfr.plugins.bayesianoptimisation import BayesianOptimisationPlugin
+from pyfr.plugins.modifyconfiguration  import ModifyConfigPlugin
 from pyfr.plugins.rewind import RewindPlugin
 
 def get_plugin(prefix, name, *args, **kwargs):
