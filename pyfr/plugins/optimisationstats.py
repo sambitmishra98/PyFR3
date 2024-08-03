@@ -125,8 +125,8 @@ class OptimisationStatsPlugin(BaseSolnPlugin):
 
         # Here, if intg data from plugin exists, we take data from there 
         if self.dtau_controller == 'local-pi' and intg.dtau_stats:
-            t1['max-dtau'] = intg.dtau_stats['max']['all']
             t1['min-dtau'] = intg.dtau_stats['min']['all']
+            t1['max-dtau'] = intg.dtau_stats['max']['all']
             t1[     'n'] = intg.dtau_stats[ 'n' ]['all']
         elif self.dtau_controller == 'none':
             t1['dtau'] = self.dtau_init
