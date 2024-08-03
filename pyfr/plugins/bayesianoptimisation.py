@@ -407,8 +407,9 @@ class BayesianOptimisationPlugin(BaseSolnPlugin):
             elif opt.startswith( 'pseudo-dt-max:') and opt[14:].isdigit(): unprocessed.append(dtau_maxs[int(opt[14:])])
             elif opt.startswith('pseudo-dt-fact:') and opt[15:].isdigit(): unprocessed.append(   dtaufs[int(opt[15:])])
             # Non-array optimisables
-            elif opt == 'pseudo-dt-max':                           unprocessed.append(pseudointegrator.pintg.dtau_max)
-            elif opt == 'pseudo-dt-fact':                          unprocessed.append(pseudointegrator.dtauf)
+            elif opt ==             'dt': unprocessed.append(pseudointegrator.pintg.dt)
+            elif opt ==  'pseudo-dt-max': unprocessed.append(pseudointegrator.pintg.dtau_max)
+            elif opt == 'pseudo-dt-fact': unprocessed.append(pseudointegrator.dtauf)
             else:
                 raise ValueError(f"Unrecognised optimisable: {opt}")
 
@@ -425,6 +426,7 @@ class BayesianOptimisationPlugin(BaseSolnPlugin):
             elif opt.startswith('pseudo-dt-fact:') and opt[15:].isdigit(): post_processed[opt] = ccandidate[i]
             elif opt.startswith( 'pseudo-dt-max:') and opt[14:].isdigit(): post_processed[opt] = ccandidate[i]
             # Non-array optimisables
+            elif opt ==             'dt': post_processed[opt] = ccandidate[i]
             elif opt ==  'pseudo-dt-max': post_processed[opt] = ccandidate[i]
             elif opt == 'pseudo-dt-fact': post_processed[opt] = ccandidate[i]
             else:
