@@ -32,8 +32,6 @@ class BayesianOptimisationPlugin(BaseSolnPlugin):
         self._nbcs = len(self.optimisables) # Number of best candidates to consider
         initialise_ref_cands = self.cfg.getfloat(cfgsect, 'initialise-reference', 2**(self._nbcs))
 
-####################################################################################################################################################################################################################
-
         # Quickly get some optimum
         self._Ainit_lim  =     initialise_ref_cands # Initialise
         self._Binit_lim  = 1.5*initialise_ref_cands # Explore
@@ -193,30 +191,6 @@ class BayesianOptimisationPlugin(BaseSolnPlugin):
                         opt_phase, opt_motive = "Exploit+b-expansion", 'PM'
                         self.cand_phase, self.cand_validate = 32, True
                     self.cand_train = True
-
-#                    opt_phase = "Explore"
-#                    opt_motive = 'EI'
-#                    self.cand_phase = 30
-#                    self.cand_validate = False
-#
-#                elif self.df_train['if-train'].sum()<self._Cinit_lim:           # Phase 4: PM
-#                    opt_phase = "Exploit"
-#                    opt_motive = 'PM'
-#                    self.cand_phase = 40
-#                    self.cand_train = True
-#                    self.cand_validate = True
-#
-#                elif self.df_train['if-train'].sum()<self._Dinit_lim:           # Phase 5: s-expansion + EI
-#                    if self.cand_phase == 52:
-#                        opt_phase = "Explore+b-expansion"
-#                        opt_motive = 'EI'
-#                        self.cand_phase = 51
-#                    else:
-#                        opt_phase = "Exploit+b-expansion"
-#                        opt_motive = 'PM'
-#                        self.cand_phase = 52
-#                    self.cand_train = True
-#                    self.cand_validate = True
 
                 elif (self.cce_true(self.df_train)>=self._nbcs
                     and not self.cand_phase == 61):                             # Phase 6: s-expansion + w-expansion + EI
