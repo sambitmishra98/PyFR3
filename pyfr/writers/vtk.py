@@ -446,6 +446,7 @@ class VTKWriter(BaseWriter):
         self.einfo = [(etype, self.soln[etype].shape[2])
                       for etype in self.mesh.eidxs]
         self._output_curved = self._output_partition = True
+        self._output_geidxs = self._output_leidxs = True
         self._prepare_pts = self._prepare_pts_volume
 
     def _init_surface(self, boundaries):
@@ -477,6 +478,7 @@ class VTKWriter(BaseWriter):
 
         self.einfo = list(ecount.items())
         self._output_curved = self._output_partition = True
+        self._output_geidxs = self.local_leidxs = True
         self._prepare_pts = self._prepare_pts_surface
 
     def _get_surface_info(self, etype, eoff, fidx):
@@ -583,6 +585,12 @@ class VTKWriter(BaseWriter):
         if self._output_partition:
             attrs.append(('Partition', 'Int32', '1'))
 
+        if self._output_geidxs:
+            attrs.append(('Geidxs', 'Int32', '1'))
+
+        if self._output_leidxs:
+            attrs.append(('Leidxs', 'Int32', '1'))
+
         for fname, varnames in vvars.items():
             attrs.append((fname.title(), dtype, str(len(varnames))))
 
@@ -598,6 +606,12 @@ class VTKWriter(BaseWriter):
             if self._output_partition:
                 sizes.append(4*ncells)
 
+            if self._output_geidxs:
+                sizes.append(4*ncells)
+
+            if self._output_leidxs:
+                sizes.append(4*ncells)
+
             sizes.extend(len(varnames)*nb for varnames in vvars.values())
 
             return tuple((*a, s) for a, s in zip(attrs, sizes))
@@ -611,6 +625,12 @@ class VTKWriter(BaseWriter):
 
         # Extract the partition number information
         part = self.soln[f'{etype}-parts']
+
+        # Extract the global element index information
+        geidx = self.soln[f'{etype}-geidxs']
+
+        # Extract the local element index information
+        leidx = self.soln[f'{etype}-leidxs']
 
         # Dimensions
         nspts, neles = spts.shape[:2]
@@ -643,10 +663,10 @@ class VTKWriter(BaseWriter):
         # Interpolate the solution to the vis points
         vsoln = _interpolate_pts(soln_vtu_op, soln)
 
-        return vpts, vsoln, curved, part
+        return vpts, vsoln, curved, part, geidx, leidx
 
     def _prepare_pts_surface(self, itype):
-        vspts, vsoln, curved, part = [], [], [], []
+        vspts, vsoln, curved, part, geidx, leidx = [], [], [], [], []
 
         for etype, mesh_op, soln_op, idxs in self._surface_info[itype]:
             spts = self.mesh.spts[etype][:, idxs]
@@ -660,9 +680,12 @@ class VTKWriter(BaseWriter):
             vsoln.append(_interpolate_pts(soln_op, soln))
             curved.append(self.mesh.spts_curved[etype][idxs])
             part.append(self.soln[f'{etype}-parts'][idxs])
+            geidx.append(self.soln[f'{etype}-geidxs'][idxs])
+            leidx.append(self.soln[f'{etype}-leidxs'][idxs])
 
         return (np.hstack(vspts), np.dstack(vsoln),
-                np.hstack(curved), np.hstack(part))
+                np.hstack(curved), np.hstack(part), 
+                np.hstack(geidx), np.hstack(leidx))
 
     def write(self, fname):
         if Path(fname).suffix == '.vtu':
@@ -803,7 +826,8 @@ class VTKWriter(BaseWriter):
             return ''
 
     def _write_serial_header(self, write_s, etype, neles, off):
-        ncelld = self._output_curved + self._output_partition
+        ncelld = (self._output_curved + self._output_partition
+                + self._output_geidxs + self._output_leidxs)
         npts, ncells = self._get_npts_ncells_nnodes(etype, neles)[:2]
 
         write_s(f'<Piece NumberOfPoints="{npts}" '
@@ -832,7 +856,9 @@ class VTKWriter(BaseWriter):
         return off
 
     def _write_parallel_header(self, write_s):
-        ncelld = self._output_curved + self._output_partition
+        ncelld = (self._output_curved + self._output_partition
+                + self._output_geidxs + self._output_leidxs)
+
         write_s('<PPoints>\n')
 
         # Write VTK DataArray headers
@@ -859,7 +885,7 @@ class VTKWriter(BaseWriter):
                 '</DataArray>\n</FieldData>\n')
 
     def _write_data(self, write, etype):
-        vpts, vsoln, curved, part = self._prepare_pts(etype)
+        vpts, vsoln, curved, part, geidx, leidx = self._prepare_pts(etype)
         nsvpts, neles = vsoln.shape[0], vsoln.shape[2]
 
         # Write element node locations to file
@@ -902,6 +928,16 @@ class VTKWriter(BaseWriter):
         if self._output_partition:
             vtu_part = np.repeat(part, len(vtu_typ) // neles)
             self._write_darray(vtu_part, write, np.int32)
+
+        # VTU cell global element indices
+        if self._output_geidxs:
+            vtu_geidxs = np.repeat(geidx, len(vtu_typ) // neles)
+            self._write_darray(vtu_geidxs, write, np.int32)
+            
+        # VTU cell local element indices
+        if self._output_leidxs:
+            vtu_leidxs = np.repeat(leidx, len(vtu_typ) // neles)
+            self._write_darray(vtu_leidxs, write, np.int32)
 
 
         # Process and write out the various fields

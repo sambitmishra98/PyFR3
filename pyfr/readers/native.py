@@ -113,8 +113,12 @@ class NativeReader:
 
                 # Read the partition data
                 epart = escatter(f[f'{ek}-parts'])
+                egeidx = escatter(f[f'{ek}-geidxs'])
+                eleidx = escatter(f[f'{ek}-leidxs'])
                 if escatter.cnt:
                     soln[f'{etype}-parts'] = epart
+                    soln[f'{etype}-geidxs'] = egeidx
+                    soln[f'{etype}-leidxs'] = eleidx
 
         # If the solution is subset then subset the mesh, too
         if subset:

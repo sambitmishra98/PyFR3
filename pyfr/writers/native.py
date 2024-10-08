@@ -155,6 +155,8 @@ class NativeWriter:
             for ek, (gatherer, subset, shape, *_) in self._einfo.items():
                 g.create_dataset(ek, shape, self.fpdtype)
                 g.create_dataset(f'{ek}-parts', shape[0:1], np.int32)
+                g.create_dataset(f'{ek}-geidxs', shape[0:1], np.int64)
+                g.create_dataset(f'{ek}-leidxs', shape[0:1], np.int64)
 
                 if subset:
                     g.create_dataset(f'{ek}-idxs', shape[0:1], np.int64)
@@ -200,6 +202,10 @@ class NativeWriter:
         for ek, (gatherer, subset, *_) in self._einfo.items():
             write_off(ek, data[ek], gatherer.off)
             write_off(f'{ek}-parts', gatherer.rsrc, gatherer.off)
+            write_off(f'{ek}-geidxs', gatherer.ridx, gatherer.off)
+            local_indices = np.arange(self._ecounts[ek.split('-')[1]], 
+                                      dtype=np.int64)
+            write_off(f'{ek}-leidxs', gatherer(local_indices), gatherer.off)
 
             # If the element has been subset then write the index data
             if subset:
