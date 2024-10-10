@@ -39,10 +39,10 @@ class BaseSystem:
         self.nvars = len(convars)
 
         # Obtain a nonce to uniquely identify this system
-        nonce = str(next(self._nonce_seq))
+        self._nonce = str(next(self._nonce_seq))
 
         # Load the elements
-        eles, elemap = self._load_eles(mesh, initsoln, nregs, nonce)
+        eles, elemap = self._load_eles(mesh, initsoln, nregs, self._nonce)
         backend.commit()
 
         # Retain the element map; this may be deleted by clients
@@ -70,7 +70,60 @@ class BaseSystem:
         self._bc_inters = self._load_bc_inters(mesh, elemap)
         backend.commit()
 
+    def __call__(self, mesh, soln):
+        self.mesh = mesh
+        soln = list(soln.values())
+
+        # Load the elements
+        eles, elemap = self._reload_eles(mesh, soln, self.nregs, self._nonce)
+        self.backend.commit()
+
+        # Retain the element map; this may be deleted by clients
+        self.ele_map = elemap
+
+        # Get the banks, types, num DOFs and shapes of the elements
+        self.ele_banks = [e.scal_upts for e in eles]
+        self.ele_types = list(elemap)
+        self.ele_ndofs = [e.neles*e.nupts*e.nvars for e in eles]
+        self.ele_shapes = {etype: (e.nupts, e.nvars, e.neles)
+                           for etype, e in elemap.items()}
+
+        # Get all the solution point locations for the elements
+        self.ele_ploc_upts = [e.ploc_at_np('upts') for e in eles]
+
+        if hasattr(eles[0], '_grad_upts'):
+            self.eles_vect_upts = [e._grad_upts for e in eles]
+
+        if hasattr(eles[0], 'entmin_int'):
+            self.eles_entmin_int = [e.entmin_int for e in eles]
+
+        # Load the interfaces
+        self._int_inters = self._load_int_inters(mesh, elemap)
+        self._mpi_inters = self._load_mpi_inters(mesh, elemap)
+        self._bc_inters = self._load_bc_inters(mesh, elemap)
+        self.backend.commit()
+
     def commit(self):
+        # Prepare the kernels and any associated MPI requests
+        self._gen_kernels(self.nregs, self.ele_map.values(), self._int_inters,
+                          self._mpi_inters, self._bc_inters)
+        self._gen_mpireqs(self._mpi_inters)
+        self.backend.commit()
+
+        self.has_src_macros = any(eles.has_src_macros
+                                  for eles in self.ele_map.values())
+
+        # Delete the memory-intensive ele_map
+        del self.ele_map
+
+        # Save the BC interfaces, but delete the memory-intensive elemap
+        for b in self._bc_inters:
+            del b.elemap
+
+        # Observed input/output bank numbers
+        self._rhs_uin_fout = set()
+
+    def recommit(self):
         # Prepare the kernels and any associated MPI requests
         self._gen_kernels(self.nregs, self.ele_map.values(), self._int_inters,
                           self._mpi_inters, self._bc_inters)
@@ -122,6 +175,29 @@ class BaseSystem:
         else:
             for ele in eles:
                 ele.set_ics_from_cfg()
+
+        # Allocate these elements on the backend
+        for etype, ele in elemap.items():
+            curved = mesh.spts_curved[etype]
+            linoff = np.max(*np.nonzero(curved), initial=-1) + 1
+
+            ele.set_backend(self.backend, nregs, nonce, linoff)
+
+        return eles, elemap
+
+    def _reload_eles(self, mesh, soln, nregs, nonce):
+        basismap = {b.name: b for b in subclasses(BaseShape, just_leaf=True)}
+
+        # Load the elements
+        elemap = {etype: self.elementscls(basismap[etype], spts, self.cfg)
+                  for etype, spts in mesh.spts.items()}
+
+        eles = list(elemap.values())
+
+        for ele, soln in zip(eles, soln):
+            ele.recreate_soln(soln)
+
+        self.backend()
 
         # Allocate these elements on the backend
         for etype, ele in elemap.items():
