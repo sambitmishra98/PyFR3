@@ -3,12 +3,21 @@ from pyfr.util import memoize
 
 
 class BaseStdStepper(BaseStdIntegrator):
+    _stepper_nfevals_prev = 0.
+
     def collect_stats(self, stats):
         super().collect_stats(stats)
 
         # Total number of RHS evaluations
         stats.set('solver-time-integrator', 'nfevals', self._stepper_nfevals)
 
+    @property
+    def performance(self):
+        # Get Performance
+        diff_fevals = self._stepper_nfevals - self._stepper_nfevals_prev
+        perf = self._get_gndofs()*diff_fevals/self.wdiff
+        self._stepper_nfevals_prev = self._stepper_nfevals
+        return perf
 
 class StdEulerStepper(BaseStdStepper):
     stepper_name = 'euler'

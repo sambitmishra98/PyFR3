@@ -64,6 +64,7 @@ class BaseIntegrator:
 
         # Record the starting wall clock time
         self._wstart = time.time()
+        self._wprev = self.wtime = 0.
 
         # Record the total amount of time spent in each plugin
         self._plugin_wtimes = defaultdict(lambda: 0)
@@ -188,6 +189,12 @@ class BaseIntegrator:
                 k += f'-{psuffix}'
 
             stats.set('solver-time-integrator', k, t)
+
+        # Pythonic way to add up all the plugin wall times
+        plugin_wtime_total = sum(self._plugin_wtimes.values())
+        # Extract wall-time spent towards compute only
+        self.wdiff = wtime - plugin_wtime_total - self._wprev
+        self._wprev = wtime - plugin_wtime_total
 
         # Step counts
         stats.set('solver-time-integrator', 'nsteps', self.nsteps)
