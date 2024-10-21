@@ -12,12 +12,40 @@ class BaseStdStepper(BaseStdIntegrator):
         stats.set('solver-time-integrator', 'nfevals', self._stepper_nfevals)
 
     @property
-    def performance(self):
+    def performances(self):
         # Get Performance
         diff_fevals = self._stepper_nfevals - self._stepper_nfevals_prev
-        perf = self._get_gndofs()*diff_fevals/self.wdiff
+
+        # Per RHS evaluation time
+        waittime     = self.system.rhs_wait_times()[0][0]
+        otime        = self.system.rhs_other_times()[0][0]
+
+        print([otime, waittime, self.pdiff, self.lbdiff, diff_fevals])
+
+        current_time = otime + waittime - (self.pdiff + self.lbdiff) /diff_fevals
+        target_time  = current_time - waittime
+
+        # Computations in this rank
+        dofs = sum(self.system.ele_ndofs)
+
+        current_perf = dofs/current_time
+        target_perf  = dofs/target_time
+
+        times = { 
+            'current':  current_time,
+             'target':   target_time,
+               'lost':      waittime,
+        }
+
+        perfs = {
+            'current':               current_perf,
+             'target': target_perf,
+               'lost': target_perf - current_perf,
+        }
+
         self._stepper_nfevals_prev = self._stepper_nfevals
-        return perf
+
+        return perfs, times
 
 class StdEulerStepper(BaseStdStepper):
     stepper_name = 'euler'

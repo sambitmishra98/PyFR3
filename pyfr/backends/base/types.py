@@ -312,20 +312,25 @@ class Graph:
         # Grouped kernels
         self.groupk = set()
 
+        self.t  = 0.
+        self.te = 0.
+        
         # MPI wrappers
         self._startall = mpi.Prequest.Startall
 
         if backend.cfg.getbool('backend', 'collect-wait-times', False):
             n = backend.cfg.getint('backend', 'collect-wait-times-len', 10000)
             self._wait_times = wait_times = deque(maxlen=n)
+            self._other_times = other_times = deque(maxlen=n)
 
             # Wrap the wait all function with a timing variant
             def waitall(reqs):
                 if reqs:
-                    t = time.perf_counter_ns()
+                    self.t = time.perf_counter_ns()
+                    other_times.append((self.t - self.te) / 1e9)
                     mpi.Prequest.Waitall(reqs)
-                    wait_times.append((time.perf_counter_ns() - t) / 1e9)
-
+                    self.te = time.perf_counter_ns()
+                    wait_times.append((self.te - self.t) / 1e9)
             self._waitall = waitall
         else:
             self._waitall = mpi.Prequest.Waitall
@@ -419,3 +424,6 @@ class Graph:
 
     def get_wait_times(self):
         return list(self._wait_times)
+
+    def get_other_times(self):
+        return list(self._other_times)

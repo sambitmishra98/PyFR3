@@ -368,6 +368,24 @@ class BaseSystem:
 
         return stats
 
+    def rhs_other_times(self):
+        # Group together timings for graphs which are semantically equivalent
+        times = defaultdict(list)
+        for u, f in self._rhs_uin_fout:
+            for i, g in enumerate(self._rhs_graphs(u, f)):
+                times[i].extend(g.get_other_times())
+
+        # Compute the mean and standard deviation
+        stats = []
+        for t in times.values():
+            mean = statistics.mean(t) if t else 0
+            stdev = statistics.stdev(t, mean) if len(t) >= 2 else 0
+            median = statistics.median(t) if t else 0
+
+            stats.append((mean, stdev, median))
+
+        return stats
+
     def _compute_grads_graph(self, t, uinbank):
         raise NotImplementedError(f'Solver "{self.name}" does not compute '
                                   'corrected gradients of the solution')
