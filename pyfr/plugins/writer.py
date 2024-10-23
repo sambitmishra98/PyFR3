@@ -29,6 +29,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         # Figure out the shape of each element type in our region
         nvars = self.nvars + self._write_grads*(self.nvars*self.ndims)
         ershapes = {etype: (nvars, emap[etype].nupts) for etype in erdata}
+        self.__ershapes = ershapes
 
         # Construct the solution writer
         self._writer = NativeWriter(intg, basedir, basename, 'soln')
@@ -112,6 +113,10 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
 
         if intg.tcurr - self.tout_last < self.dt_out - self.tol:
             return
+
+        self.regenerate_regions(intg)
+        self._writer.retally_ecounts(intg)
+        self._writer.set_shapes_eidxs(self.__ershapes, self._ele_region_data)
 
         # Prepare the data and metadata
         data = self._prepare_data(intg)

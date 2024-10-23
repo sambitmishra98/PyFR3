@@ -213,6 +213,10 @@ class NativeWriter:
 
         return f, reqs
 
+    def retally_ecounts(self, intg):
+        self._ecounts = {etype: len(intg.system.mesh.eidxs.get(etype, []))
+                        for etype in intg.system.mesh.etypes}
+
 
 class _AsyncCompleter:
     def __init__(self, reqs, timeout, callback):

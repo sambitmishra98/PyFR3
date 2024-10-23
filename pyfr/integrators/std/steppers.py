@@ -17,35 +17,30 @@ class BaseStdStepper(BaseStdIntegrator):
         diff_fevals = self._stepper_nfevals - self._stepper_nfevals_prev
 
         # Per RHS evaluation time
-        waittime     = self.system.rhs_wait_times()[0][0]
+        wtime     = self.system.rhs_wait_times()[0][0]
         otime        = self.system.rhs_other_times()[0][0]
 
-        print([otime, waittime, self.pdiff, self.lbdiff, diff_fevals])
-
-        current_time = otime + waittime - (self.pdiff + self.lbdiff) /diff_fevals
-        target_time  = current_time - waittime
+        #ttime  = otime - (self.pdiff + self.lbdiff) /50
+        ttime  = otime - (self.pdiff) / diff_fevals
+        ctime = ttime + wtime
 
         # Computations in this rank
         dofs = sum(self.system.ele_ndofs)
 
-        current_perf = dofs/current_time
-        target_perf  = dofs/target_time
+        cperf = dofs/ctime
+        tperf  = dofs/ttime
 
-        times = { 
-            'current':  current_time,
-             'target':   target_time,
-               'lost':      waittime,
-        }
+        self.lb_times = { 
+            'current': ctime, 'target': ttime, 'lost': wtime, 'lb': self.lbdiff,
+            }
 
-        perfs = {
-            'current':               current_perf,
-             'target': target_perf,
-               'lost': target_perf - current_perf,
-        }
+        self.lb_perfs = {
+            'current': cperf, 'target': tperf, 'lost': tperf - cperf,
+            }
 
         self._stepper_nfevals_prev = self._stepper_nfevals
 
-        return perfs, times
+        return self.lb_perfs
 
 class StdEulerStepper(BaseStdStepper):
     stepper_name = 'euler'

@@ -52,6 +52,7 @@ class BaseSystem:
         self.ele_banks = [e.scal_upts for e in eles]
         self.ele_types = list(elemap)
         self.ele_ndofs = [e.neles*e.nupts*e.nvars for e in eles]
+        self.ndofs = sum(self.ele_ndofs)
         self.ele_shapes = {etype: (e.nupts, e.nvars, e.neles)
                            for etype, e in elemap.items()}
 
@@ -154,24 +155,34 @@ class BaseSystem:
 
         # Set the initial conditions
         if initsoln:
-            # Load the config and stats files from the solution
-            solncfg = initsoln['config']
-            solnsts = initsoln['stats']
 
-            # Get the names of the conserved variables (fields)
-            solnfields = solnsts.get('data', 'fields').split(',')
-            currfields = eles[0].convars
+            if isinstance(initsoln, dict):
+                # Load the config and stats files from the solution
+                solncfg = initsoln['config']
+                solnsts = initsoln['stats']
 
-            # Construct a mapping between the solution file and the system
-            try:
-                smap = [solnfields.index(cf) for cf in currfields]
-            except ValueError:
-                raise RuntimeError('Invalid solution for system')
+                # Get the names of the conserved variables (fields)
+                solnfields = solnsts.get('data', 'fields').split(',')
+                currfields = eles[0].convars
 
-            # Process the solution
-            for etype, ele in elemap.items():
-                soln = initsoln[etype][:, smap, :]
-                ele.set_ics_from_soln(soln, solncfg)
+                # Construct a mapping between the solution file and the system
+                try:
+                    smap = [solnfields.index(cf) for cf in currfields]
+                except ValueError:
+                    raise RuntimeError('Invalid solution for system')
+
+                # Process the solution
+                for etype, ele in elemap.items():
+                    soln = initsoln[etype][:, smap, :]
+                    ele.set_ics_from_soln(soln, solncfg)
+
+            elif isinstance(initsoln, list):
+                for ele, soln in zip(eles, initsoln):
+                    ele.recreate_soln(soln)
+
+            else:
+                raise ValueError('Invalid initial solution')
+
         else:
             for ele in eles:
                 ele.set_ics_from_cfg()
@@ -217,6 +228,7 @@ class BaseSystem:
     def _load_mpi_inters(self, mesh, elemap):
         mpi_inters = []
         for p, con in mesh.con_p.items():
+            if not con: continue
             mpiiface = self.mpiinterscls(self.backend, con, p, elemap,
                                          self.cfg)
             mpi_inters.append(mpiiface)
@@ -229,6 +241,7 @@ class BaseSystem:
 
         bc_inters = []
         for bname, interarr in mesh.bcon.items():
+            if not interarr: continue
             # Determine the config file section
             cfgsect = f'soln-bcs-{bname}'
 

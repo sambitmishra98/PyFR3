@@ -28,11 +28,16 @@ class _Mesh:
     spts: dict = field(default_factory=dict)
     spts_nodes: dict = field(default_factory=dict)
     spts_curved: dict = field(default_factory=dict)
+    spts_internal: dict = field(default_factory=dict)
 
     con: list = field(default_factory=list)
     con_p: dict = field(default_factory=dict)
     bcon: dict = field(default_factory=dict)
 
+    eles: dict = field(default_factory=dict)
+
+    def copy(self):
+        return replace(self)
 
 class NativeReader:
     def __init__(self, fname, pname=None, *, construct_con=True):
@@ -239,6 +244,8 @@ class NativeReader:
             # If we have any elements of this type then save the einfo
             if len(idxs):
                 eles[etype] = einfo
+
+        self.mesh.eles = eles
 
     def _read_nodes(self):
         enodes = [einfo['nodes'] for einfo in self.eles.values()]

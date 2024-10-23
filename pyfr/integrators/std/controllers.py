@@ -1,4 +1,5 @@
 import math
+from time import perf_counter_ns
 
 import numpy as np
 
@@ -23,6 +24,14 @@ class BaseStdController(BaseStdIntegrator):
         if not self.isrestart:
             self._run_plugins()
 
+        self._current_perf = 0
+
+        self.coll_wtimes = self.cfg.getint('backend', 'collect-wait-times-len', 
+                                           10000)
+        if self.lb_nsteps%self.coll_wtimes != 0:
+            raise ValueError('Invalid value for lb_nsteps')
+
+
     def _accept_step(self, dt, idxcurr, err=None):
         self.tcurr += dt
         self.nacptsteps += 1
@@ -42,6 +51,13 @@ class BaseStdController(BaseStdIntegrator):
 
         # Clear the step info
         self.stepinfo = []
+
+        if self.nacptsteps % self.coll_wtimes == 0:
+            target_nelems = self.relocator.observe(self.performances)
+            if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
+                lbstart = perf_counter_ns()
+                self.balance(self.system.mesh, target_nelems)
+                self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
 
     def _reject_step(self, dt, idxold, err=None):
         if dt <= self.dtmin:

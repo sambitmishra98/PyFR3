@@ -126,7 +126,8 @@ class InspectPlugin(BaseSolnPlugin):
             elif isinstance(obj, dict) and attr in obj:
                 obj = obj[attr]
             else:
-                self._logger.warning(f"Attribute '{attr}' not found in object of type '{type(obj)}'.")
+                self._logger.warning(
+                    f"'{attr}' missing in object of type '{type(obj)}'.")
                 return np.nan
 
             if key is not None:
@@ -140,7 +141,7 @@ class InspectPlugin(BaseSolnPlugin):
                 try:
                     obj = obj[key]
                 except (KeyError, TypeError):
-                    self._logger.warning(f"Key '{key}' not found in dictionary.")
+                    self._logger.warning(f"Key '{key}' missing from dict.")
                     return np.nan
 
         return obj

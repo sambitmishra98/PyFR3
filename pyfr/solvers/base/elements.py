@@ -107,6 +107,10 @@ class BaseElements:
         for i, v in enumerate(self.pri_to_con(ics, self.cfg)):
             self.scal_upts[:, i, :] = m8 @ v if m8 is not None else v
 
+    def recreate_soln(self, solnmat):
+        nupts, neles, nvars = self.nupts, self.neles, self.nvars
+        self.scal_upts = solnmat.reshape(nupts, nvars, neles)
+
     def set_ics_from_soln(self, solnmat, solncfg):
         # Recreate the existing solution basis
         solnb = self.basis.__class__(None, solncfg)
