@@ -15,13 +15,32 @@ class InspectPlugin(BaseSolnPlugin):
     systems = ['*']
     formulations = ['dual', 'std']
     dimensions = [2, 3]
-    _logger = logging.getLogger(__name__)
 
     def __init__(self, intg, cfgsect, suffix=None):
         super().__init__(intg, cfgsect, suffix)
 
         # MPI setup
         comm, rank, root = get_comm_rank_root()
+
+        self._logger = logging.getLogger(__name__)
+        self._logger.setLevel(logging.INFO)
+
+        
+        # Prevent this logger from propagating messages to the root logger
+        self._logger.propagate = False
+        
+        # Create a file handler
+        log_file_path = logging.FileHandler('/scratch/EFFORTS/LoadBalancer/logging/plugin-inspect.log')
+        log_file_path.setLevel(logging.INFO)
+
+        # Create a formatter and set it for the handler
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        log_file_path.setFormatter(formatter)
+        
+        # Add the handler to the logger
+        self._logger.addHandler(log_file_path)
+        
+        self._logger.info("Inspect initialized.") 
 
         # Get nsteps from config (default to 1 if not specified)
         self.startsteps = self.cfg.getint(cfgsect, 'startsteps', 0)
@@ -42,7 +61,7 @@ class InspectPlugin(BaseSolnPlugin):
                 self._logger.warning("'plot-rankwise' must be a list. Ignoring.")
                 self.plot_rankwise = None
             elif len(self.plot_rankwise) != len(self.attributes):
-                self._logger.warning("Length of 'plot-rankwise' does not match 'attributes'. Ignoring.")
+                self._logger.warning("len('plot-rankwise') != len('attributes'). Ignoring.")
                 self.plot_rankwise = None
             else:
                 # Check for valid operations
@@ -264,7 +283,7 @@ class InspectPlugin(BaseSolnPlugin):
         plt.rcParams['text.parse_math'] = False  # Disable mathtext parsing
 
         # Set figure size and dpi for high-quality output
-        plt.figure(figsize=(6, 4), dpi=300)
+        plt.figure(figsize=(10, 4), dpi=300)
 
         # Plot each attribute
         for idx, attr in enumerate(self.attributes):
@@ -287,10 +306,12 @@ class InspectPlugin(BaseSolnPlugin):
                 for rank_idx in range(num_ranks):
                     ydata_rank = ydata_per_rank[rank_idx]
                     rank_label = f"{label} - Rank {rank_idx}"
-                    plt.plot(xdata, ydata_rank, label=rank_label)
+                    plt.plot(xdata, ydata_rank, label=rank_label, 
+                             marker='o', markersize=1)
             else:
                 # ydata is a list of values
-                plt.plot(xdata, ydata, label=label, marker='o', markersize=3)
+                plt.plot(xdata, ydata, label=label, 
+                         marker='o', markersize=2)
 
         # Set x and y labels
         plt.xlabel(self.xlabel or xlabel)
@@ -307,14 +328,20 @@ class InspectPlugin(BaseSolnPlugin):
         # Add grids
         if self.add_grids:
             plt.grid(which='both', linestyle='--', linewidth=0.5)
+            plt.grid(which='minor', linestyle=':', linewidth='0.5')
             plt.minorticks_on()
+            plt.ticklabel_format(style='sci', axis='both', scilimits=(0, 0),)
 
         # Use log scale if specified
         if self.iflog:
             plt.yscale('log')
 
-        # Add legend
-        plt.legend(loc='best')
+        # Add legend, center left outside of the plot
+        plt.legend( loc='center left', bbox_to_anchor=(1.01, 0.5), 
+                   borderaxespad=0.)
+
+        plt.xlim(left=0)
+        plt.ylim(bottom=0)
 
         # Adjust layout to make room for figure caption
         plt.tight_layout()
