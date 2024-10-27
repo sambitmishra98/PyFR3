@@ -1,76 +1,218 @@
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+from dataclasses import dataclass, field, replace
 import re
 import time
 
 import numpy as np
+from tabulate import tabulate
 
 from pyfr.mpiutil import get_comm_rank_root, AlltoallMixin, mpi
 from pyfr.nputil import iter_struct
+from pyfr.readers.native import _Mesh
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pyfr.readers.native import _Mesh
-
+# Remove later
+import logging
 from termcolor import colored
+from typing import List, Dict
 
+LOG_LEVEL=20
 
-class LoadRelocator:
-    def __init__(self, base_mesh: _Mesh):
-        self.update_metamesh(base_mesh)
-        self.nelems_tot = self.count_all_eidxs(base_mesh.eidxs)
-    
-    @staticmethod
-    def count_all_eidxs(mesh_eidxs):
-        comm, rank, root = get_comm_rank_root()
-        total_elements = sum(len(e) for e in mesh_eidxs.values())
-        return comm.allreduce(total_elements, op=mpi.SUM)
+# Fix seed
+np.random.seed(47)
 
-    def update_metamesh(self, base_mesh: _Mesh):
-        self.mmesh = base_mesh.copy()
-        self.mmesh.etypes = sorted(self.mmesh.etypes)
+def log_method_times(method):
+    def wrapper(self, *args, **kwargs):
+        start_time = time.perf_counter()
+        result = method(self, *args, **kwargs)
+        end_time = time.perf_counter()
 
-        self.mmesh.eidxs       = self.preproc_edict(self.mmesh.eidxs      , edim=0)
-        self.mmesh.eles        = self.preproc_edict(self.mmesh.eles       , edim=0)
-        self.mmesh.spts_curved = self.preproc_edict(self.mmesh.spts_curved, edim=0)
-        self.mmesh.spts_nodes  = self.preproc_edict(self.mmesh.spts_nodes , edim=0)
-        self.mmesh.spts        = self.preproc_edict(self.mmesh.spts       , edim=1)
+        # If more than 1 second, mark warning
+        if end_time - start_time > 10:
+            self._logger.critical(
+                f"EXTREMELY HIGH WALLTIME: {method.__name__}: {end_time - start_time:.4f} s")
+        if end_time - start_time > 5:
+            self._logger.error(
+                f"V-HIGH WALLTIME:  \t {method.__name__}: {end_time - start_time:.4f} s")
+        elif end_time - start_time > 1:
+            self._logger.warning(
+                f"HIGH WALLTIME:  \t {method.__name__}: {end_time - start_time:.4f} s")
+        else:
+            self._logger.debug(
+                f"Method {method.__name__} executed in {end_time - start_time:.4f} s")
 
-        self.mpi_relocator = AlltoallRelocator(self.mmesh)
+        return result
+    return wrapper
 
-        if base_mesh is None:
-            del self.new_mesh_copy
+def log_method_args(method):
+    def wrapper(self, *args, **kwargs):
+        arg_strs = []
+        for arg in args:
+            if isinstance(arg, np.ndarray):
+                arg_strs.append(f"{arg.shape}")
+            elif isinstance(arg, dict):
+                arg_strs.append(f"{len(arg)} keys")
+            else:
+                arg_strs.append(repr(arg))
+        self._logger.debug(f"Calling {method.__name__} with args: {', '.join(arg_strs)}")
+        return method(self, *args, **kwargs)
+    return wrapper
 
-    def update_to_new_indices(self, move_by_etype):
+# Create a decorator for logging. This will get the size of the output numpy array.
+# If it is not a numpy array, then this will give error.
 
-        new_mesh_eidxs = self.get_preordered_eidxs(move_by_etype)
+# If the returned instance is of type _Mesh, then get size of entire mesh
 
-        self.new_mesh_copy = self.mmesh.copy()
-        self.new_mesh_copy.eidxs = self.preproc_edict(new_mesh_eidxs, edim=0)
-
-        # Update the result of modified list of elements within mesh.
-        self.mpi_relocator.update_mesh(self.new_mesh_copy)
-
-    @staticmethod
-    def check_edict(edict: dict[str, np.ndarray], etypes):
-        if not isinstance(edict, dict):
-            raise ValueError("Input must be a dictionary.")
+def log_output_size(method):
+    def wrapper(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+        if isinstance(result, np.ndarray):
+            # If size is more than 1e6, log as warning
+            if result.size > 1e8:
+                self._logger.error(
+                    f"{method.__name__} returned an array of size: {result.size}")
+            if result.size > 1e7:
+                self._logger.warning(
+                    f"{method.__name__} returned an array of size: {result.size}")
+            if result.size > 1e6:
+                self._logger.info(
+                    f"{method.__name__} returned an array of size: {result.size}")
+            else:
+                self._logger.debug(
+                    f"{method.__name__} returned an array of size: {result.size}")
         
-        missing_etypes = [etype for etype in etypes if etype not in edict]
-        if missing_etypes:
-            raise ValueError(f"Input dict must contain all etypes, we are "
-                            f"missing --> {missing_etypes}")
+        elif isinstance(result, _Mesh):
+            # Get total number of elements in the mesh
+            total_elements = sum(len(e) for e in result.eidxs.values())
+            self._logger.debug(
+                f"{method.__name__} returned a mesh with total elements: {total_elements}")
+        else:
+            self._logger.debug(
+                f"{method.__name__} returned a non-array.")
+        return result
+    
+    return wrapper
 
-        for etype, ary in edict.items():
-            if not isinstance(ary, np.ndarray):
-                raise ValueError(f"ary['{etype}'] must be a np.array.")
-            if ary.ndim == 0:
-                raise ValueError(f"ary['{etype}'] np.array cannot be scalar.")
 
-    def preproc_edict(self, edict_in: dict[str, np.ndarray],*, edim: int):
+@dataclass
+class _MetaMesh(_Mesh):
+
+    mmesh_name: str = field(default="")
+    interconnector: dict = field(default_factory=dict)
+    spts_internal: dict = field(default_factory=dict)
+    recreated: bool = field(default=False)
+    ary_here: bool = field(default=False)
+    
+    def copy(self, name):
+        return replace(self, interconnector={}, mmesh_name=name)
+
+    # If input _Mesh, return a _MetaMesh
+    @classmethod
+    def from_mesh(cls, mesh: _Mesh, *, name: str = ""):
+
+        etypes = list(sorted(mesh.etypes))
+
+        return cls(
+            # Existing attributes
+            fname=mesh.fname, raw=mesh.raw, 
+            ndims=mesh.ndims, subset=mesh.subset, 
+            creator=mesh.creator, codec=mesh.codec, uuid=mesh.uuid, 
+            version=mesh.version,
+            etypes=etypes, eidxs=cls.preproc_edict(etypes, mesh.eidxs),
+            spts_curved=cls.preproc_edict(etypes, mesh.spts_curved),
+            spts_nodes=cls.preproc_edict(etypes, mesh.spts_nodes),
+            spts=cls.preproc_edict(etypes, mesh.spts, edim=1),
+            con=mesh.con, con_p=mesh.con_p, bcon=mesh.bcon,
+            eles=cls.preproc_edict(etypes, mesh.eles),
+            
+            # New attributes
+            mmesh_name=name,
+            interconnector={},
+            spts_internal={},
+            recreated=True,
+            ary_here=False,
+        )
+        
+    @property
+    def nelems_etype(self):
+        return {etype: len(self.eidxs[etype]) for etype in self.etypes}
+
+    @property
+    def nelems(self):
+        return sum(self.nelems_etype.values())
+
+    @property
+    def gcon_p(self):
+        """
+            Dict of MPI-interface connections per rank and etype.
+        """
+        return {
+                int(nrank): {
+                    etype: np.array([self.eidxs[etype][inter[1]] 
+                                     for inter in inters if inter[0] == etype ]) 
+                       for etype in self.etypes 
+                        } 
+                    for nrank, inters in self.con_p.items()
+               } 
+
+    @property
+    def ncon_p_nrank_etype(self):
+        """
+            Dict of the no. of MPI-interface connections per rank and etype.
+        """
+        return {
+                int(nrank): {
+                            etype: len(e) for etype, e in inters.items()
+                            } 
+                for nrank, inters in self.gcon_p.items()
+                }
+
+    @property
+    def ncon_p_etype(self):
+        """
+            Dict of the no. of MPI-interface connections per etype.
+        """
+        return {
+                etype: sum(inters[etype] for inters in self.ncon_p_nrank_etype.values())
+                for etype in self.etypes
+                }
+
+    @property
+    def ncon_p_nrank(self):
+        """
+            Dict of the no. of MPI-interface connections per rank, sum by etype.
+        """
+        return {
+                int(nrank): sum(inters.values()) 
+                for nrank, inters in self.ncon_p_nrank_etype.items()
+                }
+
+    @property
+    def ncon_p(self):
+        """
+            Dict of total MPI-interface connections.
+        """
+        return sum(self.ncon_p_nrank.values())
+
+    def to_mesh(self):
+
+        postproc = lambda x,e=0: self.postproc_edict(x,edim=e)
+
+        return _Mesh(
+            fname=self.fname, raw=self.raw,
+            ndims=self.ndims, subset=self.subset,
+            creator=self.creator, codec = self.codec, uuid = self.uuid,
+            version = self.version,
+            etypes = self.etypes, eidxs = postproc(self.eidxs),
+            spts_curved = postproc(self.spts_curved),
+            spts_nodes = postproc(self.spts_nodes),
+            spts = postproc(self.spts, 1),
+            con = self.con, con_p = self.con_p, bcon = self.bcon,
+            eles = postproc(self.eles),
+        )
+
+    @staticmethod
+    def preproc_edict(etypes, edict_in: dict[str, np.ndarray],*, edim: int = 0):
         """
         Ensure dictionary contains all etypes. 
         If missing etype, add an empty array similar to the existing arrays.
@@ -82,7 +224,7 @@ class LoadRelocator:
         edict = deepcopy(edict_in)
 
         # For each etype in edict, collect dtype and shape
-        for etype in self.mmesh.etypes:
+        for etype in etypes:
             ary = edict.get(etype)
 
             if ary is not None:
@@ -125,14 +267,13 @@ class LoadRelocator:
             else:
                 edict[etype] = ary
 
-        self.check_edict(edict, self.mmesh.etypes)
-
         # Ensure etypes keys are alphabetically ordered
         edict = {etype: edict[etype] for etype in sorted(edict.keys())}
 
         return edict
 
-    def postproc_edict(self, edict: dict[str, np.ndarray], *, edim: int):
+    @staticmethod
+    def postproc_edict(edict: dict[str, np.ndarray], *, edim: int = 0):
 
         edict_out = {}
 
@@ -145,40 +286,436 @@ class LoadRelocator:
 
         return edict_out
 
-    @property
-    def mesh(self):
+    def collectall(self, param: str, *, 
+                   reduce_op: str = None, 
+                   reduce_axis: str = None):
+        """
+        Collects the specified attribute or property across all ranks, with optional reduction.
 
-        # If the mesh does not exist, return None
-        if not hasattr(self, 'new_mesh_copy'):
-            return None
+        Args:
+            param (str): The attribute or property name to collect.
+            reduce_op (str, optional): The reduction operation to apply ('sum', 'max', etc.). 
+                                       If None, no reduction is applied.
+            reduce_axis (str, optional): The axis along which to reduce ('rank', 'etype', 'both').
+                                         Only applicable if reduce_op is specified.
 
-        # Make a copy of the mesh to avoid modifying the original
-        output_mesh = self.new_mesh_copy.copy()
-
-        # postproc the mesh before returning
-        output_mesh.eidxs = self.postproc_edict(output_mesh.eidxs, edim=0)
-        output_mesh.eles = self.postproc_edict(output_mesh.eles, edim=0)
-        output_mesh.spts_curved = self.postproc_edict(output_mesh.spts_curved, edim=0)
-        output_mesh.spts_nodes = self.postproc_edict(output_mesh.spts_nodes, edim=0)
-        output_mesh.spts = self.postproc_edict(output_mesh.spts, edim=1)
-
-        return output_mesh
-
-    def move(self, etypes: list[str], eids: list[int], startranks: list[int], 
-                   endranks:list[int]) -> dict:
+        Returns:
+            Any: The collected (and possibly reduced) data.
+        """
         comm, rank, root = get_comm_rank_root()
+
+        # Check if the attribute or property exists
+        if not hasattr(self, param):
+            raise AttributeError(f"{self.__class__.__name__} has no attribute or property '{param}'")
+
+        # Retrieve the attribute or property value
+        attr = getattr(self, param)
+
+        # If it's a method (property with parameters), raise an error
+        if callable(attr):
+            raise TypeError(f"Attribute '{param}' is callable. "
+                f"'collectall' expects a non-callable attribute or property.")
+
+        # Gather the attribute across all ranks
+        gathered_attr = comm.allgather(attr)
+
+        # If no reduction is specified, return the gathered data
+        if reduce_op is None:
+
+            # Ensure the attribute is a dictionary
+            if isinstance(attr, dict) and all(isinstance(k, str) for k in attr.keys()):
+                gathered = {}
+
+                for etype in self.etypes:
+                    value = attr.get(etype)
+                    if value is not None:
+                        # Ensure consistent data types across ranks
+                        gathered_values = comm.allgather(value)
+                    else:
+                        # If a rank doesn't have data for this etype, 
+                        #   gather an empty array
+                        # You can modify this as needed
+                        # Here, we assume float dtype. 
+                        #   Adjust based on your actual data type.
+                        gathered_values = comm.allgather(np.array([], 
+                                                                  dtype=float))
+                    gathered[etype] = gathered_values
+
+                return gathered
+
+            else:
+                return gathered_attr
+
+        # Perform reduction
+        if reduce_axis == 'rank':
+            # Reduce across ranks
+            reduced_attr = self._reduce_across_ranks(gathered_attr, reduce_op)
+        elif reduce_axis == 'etype':
+            # Reduce across etypes
+            reduced_attr = self._reduce_across_etypes(gathered_attr, reduce_op)
+        elif reduce_axis == 'both':
+            # Reduce across both ranks and etypes
+            reduced_attr = self._reduce_across_both(gathered_attr, reduce_op)
+        else:
+            raise ValueError(f"Invalid reduce_axis '{reduce_axis}'. "
+                             f"Must be 'rank', 'etype', or 'both'.")
+
+        return reduced_attr
+
+    def _reduce_across_ranks(self, gathered_attr, reduce_op):
+        comm, rank, root = get_comm_rank_root()
+
+        # Determine the reduction operation
+        mpi_op = self._get_mpi_op(reduce_op)
+
+        # Local attribute
+        local_attr = gathered_attr[rank]
+
+        # Handle different data types
+        if isinstance(local_attr, dict):
+            # Assume dict with etypes or other keys
+            reduced_attr = {}
+            keys = set().union(*(d.keys() for d in gathered_attr))
+            for key in keys:
+                values = [d.get(key, 0) for d in gathered_attr]
+                # Reduce values
+                local_value = values[rank]
+                reduced_value = comm.allreduce(local_value, op=mpi_op)
+                reduced_attr[key] = reduced_value
+        elif isinstance(local_attr, np.ndarray):
+            # Reduce arrays element-wise
+            # Stack arrays from all ranks
+            reduced_attr = np.empty_like(local_attr)
+            comm.Allreduce(local_attr, reduced_attr, op=mpi_op)
+        elif isinstance(local_attr, (int, float, np.number)):
+            # Reduce scalar values
+            reduced_attr = comm.allreduce(local_attr, op=mpi_op)
+        else:
+            raise TypeError(f"Unsupported data type for reduction: {type(local_attr)}")
+
+        return reduced_attr
+
+    def _reduce_across_etypes(self, gathered_attr, reduce_op):
+        # Assume each rank's attribute is a dict with etypes as keys
+        # Reduce across etypes within each rank
+
+        numpy_op = self._get_numpy_op(reduce_op)
+
+        local_attr = gathered_attr[self.rank]
+
+        if not isinstance(local_attr, dict):
+            raise TypeError("Attribute must be a dictionary with etypes as keys to reduce across etypes.")
+
+        # Reduce values across etypes
+        reduced_value = numpy_op([v for v in local_attr.values()])
+
+        return reduced_value
+
+    def _reduce_across_both(self, gathered_attr, reduce_op):
+        # First reduce across etypes within each rank
+        reduced_across_etypes = self._reduce_across_etypes(gathered_attr, reduce_op)
+
+        # Gather the reduced values from all ranks
+        gathered_reduced = self.comm.allgather(reduced_across_etypes)
+
+        # Now reduce across ranks
+        reduced_attr = self._reduce_across_ranks(gathered_reduced, reduce_op)
+
+        return reduced_attr
+
+    def _get_mpi_op(self, reduce_op):
+        if   reduce_op ==  'sum': return mpi.SUM
+        elif reduce_op ==  'max': return mpi.MAX
+        elif reduce_op ==  'min': return mpi.MIN
+        elif reduce_op == 'prod': return mpi.PROD
+        else: raise ValueError(f"Unsupported MPI reduction op: '{reduce_op}'.")
+
+    def _get_numpy_op(self, reduce_op):
+        if   reduce_op ==  'sum': return np.sum
+        elif reduce_op ==  'max': return np.max
+        elif reduce_op ==  'min': return np.min
+        elif reduce_op == 'prod': return np.prod
+        else: raise ValueError(f"Unsupported NumPy reduction op: '{reduce_op}'.")
+
+@dataclass
+class _MetaMeshes:
+    """
+    This class handles all the mmeshes created during the load balancing process.
+    It tracks all mmeshes; _MetaMesh objects enhanced from _Mesh objects.
+    """
+
+    mmeshes: Dict[str, _MetaMesh] = field(default_factory=dict)
+
+    etypes: List[str] = field(default_factory=list)
+    fname: str = ""
+    gnelems_etype: Dict[str, int] = field(default_factory=dict)
+    gnelems: int = field(default=0)
+
+    def add_mmesh(self, name: str, mmesh: _MetaMesh, if_base = False):
+
+        # Ensure no other mmeshes exist before 1st mesh is added
+        if if_base and self.mmeshes:
+            raise ValueError(
+                "Base mesh MUST be called once. The solution resides in here.")
+
+        self.mmeshes[name] = mmesh
+        self.mmeshes[name].mmesh_name = name
+
+        if if_base:
+
+            # Initialise logger
+            self._logger = self.initialise_logger(__name__, LOG_LEVEL)
+
+            comm, rank, root = get_comm_rank_root()
+
+            self.etypes = mmesh.etypes
+            self.fname = mmesh.fname
+            self.gnelems_etype = {etype: comm.allreduce(len(mmesh.eidxs[etype]), 
+                                                op=mpi.SUM) 
+                                        for etype in mmesh.etypes}
+
+            self.gnelems = sum(self.gnelems_etype.values())
+
+            self.mmeshes[name].recreated = True
+            self.mmeshes[name].ary_here = True
+        else:
+            self.mmeshes[name].ary_here = False
+
+            if LOG_LEVEL < 30:
+                # Check all those set by the base mmesh with this one
+                if self.etypes != mmesh.etypes:
+                    raise ValueError(
+                        f"etypes mismatch: {self.etypes} != {mmesh.etypes}")
+                
+                if self.fname != mmesh.fname:
+                    raise ValueError(
+                        f"fname mismatch: {self.fname} != {mmesh.fname}")
+                
+                mmesh_gnelems_etype = {etype: 
+                    len(mmesh.eidxs[etype]) for etype in mmesh.etypes}
+
+                if self.gnelems_etype != mmesh_gnelems_etype:
+
+                    raise ValueError(
+                        f"nelems mismatch: {self.gnelems_etype} != {mmesh_gnelems_etype}")
+    
+    def update_mmesh(self, name: str, mmesh: _MetaMesh):
+        self.mmeshes[name] = mmesh
+
+    def get_mmesh(self, name: str) -> _MetaMesh:
+        if name not in self.mmeshes:
+            raise KeyError(f"Mesh '{name}' not found.")
+        return self.mmeshes.get(name)
+
+    def remove_mmesh(self, name: str):
+        if name not in self.mmeshes:
+            raise KeyError(f"Mesh '{name}' not found.")
+        del self.mmeshes[name]
+
+    def move_mmesh(self, src_name, dest_name):
+        """
+        Move src-mesh to dest-mesh.
+        """
+
+        # Check if src and dest exist
+        if src_name not in self.mmeshes:
+            raise KeyError(f"Mesh '{src_name}' not found.")
+        else:
+            if dest_name not in self.mmeshes:
+                raise KeyError(f"Mesh '{dest_name}' not found.")
+
+            # Ensure src is re-created
+            if not self.mmeshes[src_name].recreated:
+                raise ValueError(f"Mesh '{src_name}' has not been recreated.")
+
+        # Delete all src --> dest connections
+        for mesh_name, mmesh in self.mmeshes.items():
+            if src_name in mmesh.interconnector:
+                self._logger.warning(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
+                del mmesh.interconnector[src_name]
+
+        # Delete all dest --> src connections
+        if dest_name in self.mmeshes[src_name].interconnector:
+            self._logger.warning(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
+            del self.mmeshes[src_name].interconnector[dest_name]
+
+        self.mmeshes[dest_name] = self.mmeshes[src_name]
+        self.remove_mmesh(src_name)
+        self.mmeshes[dest_name].mmesh_name = dest_name
+
+    def copy_mmesh(self, src_name, dest_name, new_eidxs = None):
+        """
+        Copy source meta-mesh to destination meta-mesh.
+        """
+        if src_name not in self.mmeshes:
+            raise KeyError(f"Mesh '{src_name}' not found.")
+        else:
+            if dest_name in self.mmeshes:
+                raise KeyError(f"Mesh '{dest_name}' already exists.")
         
-        # Initialise with empty lists
-        move_by_etype = {nrank: {etype: [] for etype in self.mmesh.etypes} for nrank in range(comm.size) if nrank != rank}
+            # If recreated is False, give error
+            if not self.mmeshes[src_name].recreated: 
+                raise ValueError(
+                    f"Copying a mesh that has not yet been recreated! "
+                    f"Mesh: {src_name}")
 
-        for etype, eid, startrank, endrank in zip(etypes, eids, startranks, endranks):
-            if rank == startrank:
-                move_by_etype[endrank][etype].append(eid)
+        self.mmeshes[dest_name] = self.mmeshes[src_name].copy(dest_name) 
 
-        return move_by_etype
+        if new_eidxs is not None:
+            self.mmeshes[dest_name].eidxs = self.mmeshes[src_name].preproc_edict(self.etypes, new_eidxs)
+            self.connect_mmeshes(src_name, dest_name, both_ways=True)
+            self.get_mmesh(src_name).interconnector[dest_name].recreate_reorder_recreate_mesh()
+            self.mmeshes[dest_name].recreated = True
 
+    def connect_mmeshes(self, src_name: str, dest_name: str, 
+                       both_ways: bool = False):
+        if not src_name in self.mmeshes:
+            # Print all mmeshes first, then raise error
+            print(f"Available mmeshes: {list(self.mmeshes.keys())}")
+            raise KeyError(f"Missing mesh: {src_name}.")
+            
+        if not dest_name in self.mmeshes:
+            print(f"Available mmeshes: {list(self.mmeshes.keys())}")
+            raise KeyError(f"Missing mesh: {dest_name}.") 
+
+        # For convinience, set variable names
+        src_mmesh = self.mmeshes[src_name]
+        dest_mmesh = self.mmeshes[dest_name]
+
+        # Check if either has not been recreated
+        if not src_mmesh.recreated:
+            print(f"Available mmeshes: {list(self.mmeshes.keys())}")
+            raise ValueError(f"{src_name} not yet recreated! ")
+
+        if not dest_mmesh.recreated:
+            self._logger.warning(f"{dest_name} not yet recreated! ")
+
+        # If connection already exists, then error
+        if dest_name in src_mmesh.interconnector:
+            raise ValueError(f"Connection exists: {src_name} <-- {dest_name}")
+
+        src_mmesh.interconnector[dest_name] = MeshInterConnector(
+                                                        src_mmesh, dest_mmesh)
+        if both_ways:
+            self.connect_mmeshes(dest_name, src_name)
+
+    def __str__(self):
+        comm, rank, root = get_comm_rank_root()
+
+        etypes = self.etypes
+        num_ranks = comm.size
+        columns = ['Mesh-name']
+
+        # For each etype and each rank ...
+        for etype in etypes:
+            for r in range(num_ranks):
+                columns.append(f'{etype}-{r}')
+
+        for etype in etypes:
+            columns.append(f'{etype}-all')
+
+        columns.extend(['Total', 'Connections', 'Recreated', 'Solution Here'])
+
+        # Now, collect data from all ranks
+        # For each mesh, we need to collect per-rank element counts
+        mesh_info_per_rank = {}
+        for mesh_name, mesh in self.mmeshes.items():
+            # For this rank, get the element counts per etype
+            ecounts = {etype: len(mesh.eidxs.get(etype, [])) for etype in etypes}
+            # Store in mesh_info_per_rank
+            mesh_info_per_rank[mesh_name] = {'ecounts': ecounts}
+
+        # Now, gather this data from all ranks
+        all_mesh_info = comm.gather(mesh_info_per_rank, root=root)
+
+        if rank == root:
+            # Now, we have all_mesh_info as a list of dicts from each rank
+            # We need to process this to build the table
+
+            # Initialize a list for the rows
+            rows = []
+
+            for mesh_name in self.mmeshes.keys():
+                # Initialize a dict to hold per-etype, per-rank counts
+                etype_rank_counts = {}
+                for etype in etypes:
+                    etype_rank_counts[etype] = [0] * num_ranks
+
+                # Collect per-rank counts
+                for r, mesh_info in enumerate(all_mesh_info):
+                    if mesh_name in mesh_info:
+                        ecounts = mesh_info[mesh_name]['ecounts']
+                        for etype in etypes:
+                            etype_rank_counts[etype][r] = ecounts.get(etype, 0)
+                    else:
+                        # Mesh not present on this rank
+                        pass
+
+                # Compute per-etype totals across all ranks
+                nelem_etype = {etype: 
+                            sum(etype_rank_counts[etype]) for etype in etypes}
+
+                # Compute total elements across all etypes and ranks
+                total_elements = sum(nelem_etype.values())
+
+                # Get connections for this mesh
+                mesh = self.mmeshes[mesh_name]
+                inter_mesh = list(mesh.interconnector.keys())
+                inter_mesh_str = ', '.join(inter_mesh) if inter_mesh else 'None'
+
+                # Build the row
+                row = [mesh_name]                       
+                for etype in etypes:
+                    for r in range(num_ranks):
+                        row.append(str(etype_rank_counts[etype][r]))
+
+                for etype in etypes:               
+                    row.append(str(nelem_etype[etype]))
+                row.append(str(total_elements))    
+                row.append(inter_mesh_str)         
+                row.append(str(mesh.recreated))    
+                row.append(str(mesh.ary_here))     
+                rows.append(row)                   
+
+            # Now, format the table
+            table = tabulate(rows, headers=columns, tablefmt='grid')
+
+            return table
+        else:
+            return ''
+
+    def initialise_logger(self, name, level):
+        comm, rank, root = get_comm_rank_root()
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.propagate = False
+        file_handler = logging.FileHandler(
+            f'/scratch/EFFORTS/LoadBalancer/logging/{name}-{rank}.log')
+        file_handler.setLevel(level)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s  - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.info("_______________________________________________")
+        logger.info(f"{name} initialized.") 
+
+        return logger
+
+
+class LoadRelocator:
+    # Initialise as an empty list
+    etypes = []
+
+    def __init__(self, base_mesh: _Mesh):
+
+        self._logger = self.initialise_logger(__name__, LOG_LEVEL)
+
+        self.mm = _MetaMeshes()
+        self.mm.add_mmesh('base', _MetaMesh.from_mesh(base_mesh), if_base=True)
+        self.mm.copy_mmesh('base', 'compute')
 
     def observe(self, perfs):
+
         comm, rank, root = get_comm_rank_root()
         
         # Function to gather all values from a dictionary
@@ -189,102 +726,216 @@ class LoadRelocator:
         gathered_perfs = gather_all(perfs)
 
         # Gather the number of elements from all processes
-        self.nelems = np.array(comm.allgather(sum(len(e) for e in self.mmesh.eidxs.values())))
+        self.cost = gathered_perfs['target'] / sum(gathered_perfs['target'])
 
-        self.cost = np.array(gathered_perfs['target']) / sum(gathered_perfs['target'])
+        self._logger.info(f"Cost: {self.cost}")
 
-        return sum(self.nelems)*self.cost[rank] / sum(self.cost)
+        return self.mm.gnelems*self.cost[rank] / sum(self.cost)
 
-    def diffuse(self, target_nelems):
+    @log_method_times
+    def diffuse(self, mesh_name, target_nelems,*, ary):
         comm, rank, root = get_comm_rank_root()
-        csize = comm.size
 
-        nelems_diff = np.array(comm.allgather(self.nelems[rank]-target_nelems)) 
-        print(nelems_diff)
+        if LOG_LEVEL < 30:
+            # If ary does not exist in the compute mesh, error
+            if not self.mm.get_mmesh(mesh_name).ary_here:
+                raise ValueError("Solution does not exist in compute mesh.")
+            
+            ary_shape = [s.shape[2] for s in ary]
+            mesh_shape = [len(self.mm.get_mmesh(mesh_name).eidxs[etype]) for etype in self.mm.etypes]
+            
+            # Compare
+            if ary_shape != mesh_shape: 
+                raise ValueError(f"ary shape {ary_shape} mismatch with mesh shape {mesh_shape}")
+            else:
+                self._logger.debug(f"ary shape matches mesh shape.")
 
-        gcon_p = self._build_global_connectivity()
+            sum_ary_allreduced = np.array(comm.allreduce(np.sum(ary), op=mpi.SUM))
 
-        ncon_p_dict = {nrank: {etype: len(e) for etype, e in inters.items()} for nrank, inters in gcon_p.items()}
-        ncon_p_sum = sum(sum(inters.values()) for inters in ncon_p_dict.values())
+        # Set initial new_mesh and new_ary
+        nelems_diff = self.mm.get_mmesh(mesh_name).nelems - target_nelems
 
-        nelems_from_nrank_dict = {
-            nrank: nelems_diff[rank]*sum(inters.values())/ncon_p_sum for nrank, inters in ncon_p_dict.items()}
-        nelems_from_nrank_dict[rank] = 0                                                        # Own rank element movement zero
+        ncon_p = self.mm.get_mmesh(mesh_name).ncon_p
+        tolerable_imbalance = np.max(comm.allgather(ncon_p))/100
+        print( f"Tolerable elements imbalance in each rank: {tolerable_imbalance}")
 
-        LoadRelocator.cprint(nelems_from_nrank_dict, name='nelems_from_nrank_dict')
+        # Create a mesh called mesh_name+'_base'. 
+        self.mm.copy_mmesh(mesh_name, mesh_name+'_base')
+
+        # Solution must now only be in the `mesh_name` mesh
+        for m in self.mm.mmeshes:
+            self.mm.mmeshes[m].ary_here = m == mesh_name
         
-        nelems_from_nrank       = np.zeros((csize, csize))
-        nelems_from_nrank[rank] = [nelems_from_nrank_dict[nrank] for nrank in range(csize)] # Fill the matrix with the number of elements to move from each rank to another
-        nelems_from_nrank       = comm.allreduce(nelems_from_nrank, op=mpi.SUM)                 # sum across all ranks
-        nelems_from_nrank       = (nelems_from_nrank - nelems_from_nrank.T) / 2                 # Get (M - Mᵀ)/2, so send[nrank] = recv[nnrank]
+        ii = 0
+        while comm.allreduce(np.abs(nelems_diff), op=mpi.SUM) >  tolerable_imbalance or ii == 0:
+            ii += 1
+            print(f"iter{ii} Current nelems: {self.mm.get_mmesh(mesh_name+'_base').nelems}, target: {target_nelems}")
 
-        nelems_from_nrank = np.round(nelems_from_nrank).astype(int) # Round off all elements to the nearest integer
-        nelems_from_nrank = np.maximum(nelems_from_nrank, 0)        # Remove all negatives
+            nelems_diff = self.mm.get_mmesh(mesh_name+'_base').nelems - target_nelems
+            self._logger.info(f"no. elements moved out: {nelems_diff}")
+            self._logger.info(f"Possible movements: {self.mm.get_mmesh(mesh_name+'_base').ncon_p_nrank_etype}")
 
-        neles_from_nrank = nelems_from_nrank[rank,    :]
+            to_nrank = self.figure_out_move_to_nrank(nelems_diff, self.mm.get_mmesh(mesh_name+'_base'))
+            move_elems = self.reloc_interface_elems(to_nrank, self.mm.get_mmesh(mesh_name+'_base'))
 
-        move_elements = self._select_elements_to_move(gcon_p, ncon_p_dict, neles_from_nrank)
+            # Using reference mesh, create a temporary mesh
+            self.mm.copy_mmesh(mesh_name+'_base', 
+                               mesh_name+'-temp', 
+                               self.get_preordered_eidxs(move_elems, 
+                                         self.mm.get_mmesh(mesh_name+'_base')))
+            print(self.mm)
+            self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_base')
 
-        self.update_to_new_indices(move_elements)
+        # Set new array and solution here
+        new_mesh = self.mm.get_mmesh(mesh_name+ '_base').to_mesh()
+        #self.mm.connect_mmeshes(mesh_name, mesh_name+'_base')
+        self.mm.connect_mmeshes(mesh_name+'_base', mesh_name)
+        new_ary = list(self.reloc(mesh_name, mesh_name+'_base',  
+                {m:s for m,s in zip(self.mm.etypes, ary)}, edim=2).values()
+                           )
 
-    def _build_global_connectivity(self):
-        return {
+        # Finally, replace mesh_name with mesh_name+'_base'
+        self.mm.move_mmesh(mesh_name+'_base', mesh_name)
+            
+        # Solution must now only be in the final mesh
+        for m in self.mm.mmeshes:
+            self.mm.mmeshes[m].ary_here = m == mesh_name
+            
+        print(self.mm)
+
+        print("-" * 80)
+
+        if LOG_LEVEL < 30:
+            new_mesh_shape = [len(new_mesh.eidxs[etype]) for etype in new_mesh.etypes]
+            new_ary_shape = [s.shape[2] for s in new_ary]
+
+            if new_ary_shape != new_mesh_shape:
+                raise ValueError(f"Solution shape {new_ary_shape} does not match mesh shape {new_mesh_shape}")
+            else:
+                self. _logger.debug(f"Successfully recreated mesh and solution.")
+
+            new_sum_ary_allreduced = np.array(comm.allreduce(np.sum(new_ary), op=mpi.SUM))
+
+            error = np.abs(new_sum_ary_allreduced - sum_ary_allreduced)/sum_ary_allreduced
+
+            if np.any(error > 1e-10):
+                raise ValueError(f"Ary-sum mismatch of the order of 1e-10. " 
+                                f"Expected {sum_ary_allreduced}, got {new_sum_ary_allreduced}.")
+            else:
+                self._logger.debug(f"Sum solution after relocation matches sum solution before relocation.")
+
+        return new_mesh, new_ary
+
+    def reloc(self, src_mesh_name : str, dest_mesh_name: str,
+                 edict: dict[str, np.ndarray],*, edim) -> dict[str, np.ndarray]:
+
+        # Check that the numpy arrays in edict are of the same shape as the source mesh 
+
+
+
+        # For convinience, set the _MetaMesh instance to a variable
+        dest_mmesh = self.mm.get_mmesh(dest_mesh_name)
+
+        edict = dest_mmesh.preproc_edict(self.mm.etypes, edict, edim=edim)
+        relocated_dict = dest_mmesh.interconnector[src_mesh_name].relocate(edict)
+        return dest_mmesh.postproc_edict(relocated_dict, edim=edim)
+
+    def figure_out_move_to_nrank(self, nelems_diff: int, mesh: _MetaMesh):
+        comm, rank, root = get_comm_rank_root()
+
+        ncon_p_nrank_etype = mesh.ncon_p_nrank_etype
+        ncon_p_nrank       = mesh.ncon_p_nrank
+        ncon_p             = mesh.ncon_p
+
+        nranks = comm.size
+
+        move_to_nrank = np.zeros((nranks, nranks))
+        for nrank, inters in ncon_p_nrank_etype.items():
+            if nelems_diff != 0:
+                move_to_nrank[rank,nrank] = nelems_diff * ncon_p_nrank[nrank] / ncon_p
+
+        move_to_nrank = comm.allreduce(move_to_nrank, op=mpi.SUM)
+        move_to_nrank = np.maximum((move_to_nrank - move_to_nrank.T) / 2, 0)
+        self._logger.info(f"Movement of elements to nrank: {move_to_nrank}")
+
+        return move_to_nrank
+
+    def reloc_interface_elems(self, move_to_nrank: np.ndarray, 
+                                    mesh: _MetaMesh,
+                                    ):
+
+        comm, rank, root = get_comm_rank_root()
+
+        gcon_p             = mesh.gcon_p
+        ncon_p_nrank_etype = mesh.ncon_p_nrank_etype
+        ncon_p             = mesh.ncon_p
+
+        move_elems = {nrank: {
+                etype: np.unique(np.sort(np.array([
+                    intelem 
+                    for intelem, move in zip(gcon_p[nrank][etype], 
+                                             np.random.rand(ncon_p_nrank_etype[nrank][etype]) < min(1, move_to_nrank[rank][nrank] /ncon_p)
+                                             ) if move]))) 
+                        for etype in self.mm.etypes
+                } for nrank in mesh.con_p.keys()
+            }
+
+        return self.remove_duplicate_movements(move_elems, mesh)
+
+    def remove_duplicate_movements(self, 
+                                   move_elems: dict[int, dict[str, np.ndarray]],
+                                   mesh: _Mesh):
+        """
+        Remove duplicate movements from the move_to_nrank dictionary.
+        """
+
+        move_initial = {
             nrank: {
-                etype: np.array([
-                    self.mmesh.eidxs[etype][inter[1]] 
-                       for inter in inters if inter[0] == etype
-                    ]) for etype in self.mmesh.etypes
-                } for nrank, inters in self.mmesh.con_p.items()
-            } 
-
-    def _select_elements_to_move(self, gcon_p, ncon_p_dict, neles_from_nrank):
-        ncon_p_sum = sum(sum(inters.values()) for inters in ncon_p_dict.values())
-        
-        # Set a probability of movement for each element.
-        move_elements = {}
-        for nrank in gcon_p:
-            #prob = neles_from_nrank[nrank] /ncon_p_sum
-            #bool_by_etype = {etype: np.random.rand(ncon_p_dict[nrank][etype]) < min(1, prob) for etype in self.mmesh.etypes}
-            #move_elements[nrank] = {
-            #    etype: np.unique(np.sort(np.array([
-            #        intelem 
-            #        for intelem, move in zip(gcon_p[nrank][etype], bool_by_etype[etype]) if move]))) 
-            #            for etype in self.mmesh.etypes
-            #    }
-
-            #LoadRelocator.cprint(move_elements[nrank], name=f'OPTION 1: move_elements[{nrank}]')
-
-            move_elements[nrank] = {}
-            for etype in self.mmesh.etypes:
-                elements = gcon_p[nrank][etype]
-                num_elements = len(elements)
-                num_to_move = int(neles_from_nrank[nrank] * 
-                                  (ncon_p_dict[nrank][etype] / ncon_p_sum))
-                if num_elements > 0 and num_to_move > 0:
-                    selected_indices = np.random.choice(
-                        num_elements, min(num_to_move, num_elements), 
-                        replace=False)
-                    move_elements[nrank][etype] = elements[selected_indices]
-                else:
-                    move_elements[nrank][etype] = np.array([], dtype=int)
+                etype: 
+                    len(elems) for etype, elems in etypeelems.items()
+                    } 
+                        for nrank, etypeelems in move_elems.items()
+                        }
 
         # Prioritise decreasing load on the costliest ranks first
-        sorted_ranks = sorted(gcon_p, key=lambda x: self.cost[x], reverse=False)
+        sorted_ranks = sorted(mesh.con_p.keys(), key=lambda x: self.cost[x], reverse=False)
 
         # Step 8: Remove duplicates by iterating over sorted ranks
         for i, nrank in enumerate(sorted_ranks):
-            for etype in self.mmesh.etypes:
+            for etype in self.mm.etypes:
                 for nnrank in sorted_ranks[i+1:]:
-                    move_elements[nnrank][etype] = np.setdiff1d(
-                        move_elements[nnrank][etype], move_elements[nrank][etype]
+                    move_elems[nnrank][etype] = np.setdiff1d(
+                        move_elems[nnrank][etype], move_elems[nrank][etype]
                     )
 
-        return move_elements
+        move_final = {
+                      nrank: {
+                              etype: len(elems) 
+                              for etype, elems in etypeelems.items()
+                             } for nrank, etypeelems in move_elems.items()
+                     }
 
-    def get_preordered_eidxs(self, move_to_nrank: dict[int, dict[str, np.ndarray]]):
+        if LOG_LEVEL < 30:
+
+            temp = {
+                nrank: {
+                    etype: move_initial[nrank][etype] - move_final[nrank][etype] 
+                            for etype in self.mm.etypes
+                    } for nrank in mesh.con_p.keys()
+                }
+
+
+            # Logg the number of elements moved to each rank, flattened 1D
+            self._logger.info(f"Duplicates removed: { temp }")
+
+        return move_elems
+    
+    @log_method_times
+    def get_preordered_eidxs(self, 
+                             move_to_nrank: dict[int, dict[str, np.ndarray]],
+                             mesh: _MetaMesh):
         """
         Get new element indices on each rank after relocation.
-        
         """
 
         comm, rank, root = get_comm_rank_root()
@@ -292,15 +943,19 @@ class LoadRelocator:
         # Sync expected element movement across all ranks
         moved_from_nrank = self._send_recv(move_to_nrank)
 
-        new_mesh_eidxs = deepcopy(self.mmesh.eidxs)
-        # preprocs new_mesh_eidxs
-        new_mesh_eidxs = self.preproc_edict(new_mesh_eidxs, edim=0)
+        # For convinience, set the compute mesh to a variable
+        compute_mesh = mesh
 
-        for etype in self.mmesh.etypes:
+        new_mesh_eidxs = deepcopy(compute_mesh.eidxs)
+
+        # preprocs new_mesh_eidxs
+        new_mesh_eidxs = compute_mesh.preproc_edict(self.mm.etypes, new_mesh_eidxs)
+
+        for etype in self.mm.etypes:
             elements_to_remove = np.sort(np.concatenate([elements[etype] for elements in move_to_nrank.values()]))
             new_mesh_eidxs[etype] = np.setdiff1d(new_mesh_eidxs[etype], elements_to_remove)
 
-        for etype in self.mmesh.etypes:
+        for etype in self.mm.etypes:
             elements_to_add = np.sort(np.concatenate([elements[etype] for elements in moved_from_nrank.values()]))
             new_mesh_eidxs[etype] = np.unique(np.concatenate((new_mesh_eidxs[etype], elements_to_add)).astype(np.int32))
 
@@ -308,9 +963,10 @@ class LoadRelocator:
         ntotal_final = self.count_all_eidxs(new_mesh_eidxs)
 
         # Ensure the total number of elements is preserved
-        if rank == root and self.nelems_tot != ntotal_final:
+        if rank == root and sum(self.mm.gnelems_etype.values()) != ntotal_final:
             raise ValueError(f"Total number of elements changed during relocation. "
-                            f"Expected {self.nelems_tot}, got {ntotal_final}.")
+                            f"Expected {sum(self.mm.gnelems_etype.values())}, "
+                            f"got {ntotal_final}.")
 
         return new_mesh_eidxs
 
@@ -356,12 +1012,36 @@ class LoadRelocator:
         return recv_elements
 
 
-    def relocate(self, edict: dict[str, np.ndarray],*, edim) -> dict[str, np.ndarray]:
+    def get_gcon_p(self, mesh: _Mesh):
+        return {
+                nrank: {
+                etype: np.array([mesh.eidxs[etype][inter[1]] 
+                                 for inter in inters if inter[0] == etype ]) 
+                       for etype in mesh.etypes 
+                    } 
+                for nrank, inters in mesh.con_p.items()
+               } 
 
-        edict = self.preproc_edict(edict, edim=edim)
-        self.check_edict(edict, self.mmesh.etypes)
-        relocated_dict = self.mpi_relocator.relocate(edict)
-        return self.postproc_edict(relocated_dict, edim=edim)
+    def initialise_logger(self, name, level):
+        comm, rank, root = get_comm_rank_root()
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.propagate = False
+        file_handler = logging.FileHandler(f'/scratch/EFFORTS/LoadBalancer/logging/{name}-{rank}.log')
+        file_handler.setLevel(level)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s  - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.info("_______________________________________________")
+        logger.info(f"{name} initialized.") 
+
+        return logger
+
+    @staticmethod
+    def count_all_eidxs(mesh_eidxs):
+        comm, rank, root = get_comm_rank_root()
+        total_elements = sum(len(e) for e in mesh_eidxs.values())
+        return comm.allreduce(total_elements, op=mpi.SUM)
 
     @staticmethod
     def cprint(text, name='blank'):
@@ -427,17 +1107,23 @@ class LoadRelocator:
             time.sleep(r/100)
             comm.Barrier()
 
+class MeshInterConnector(AlltoallMixin):
 
-class AlltoallRelocator(AlltoallMixin):
+    def __init__(self, mmesh: _MetaMesh, target: _MetaMesh = None):
 
-    def __init__(self, mmesh: _Mesh):
+        # Get loggers
+        self._logger = self.initialise_logger(__name__, LOG_LEVEL)
+
         self.comm, self.rank, self.root = get_comm_rank_root()
 
-        # Neighbours are all ranks except the current rank
-        self.neighbours = [i for i in range(self.comm.size) if i != self.comm.rank]
+        self.mmesh = mmesh
+        self.etypes = list(mmesh.eidxs.keys())
+        self.neighbours = [i for i in range(self.comm.size) if i != self.rank]
 
-        self.etypes = mmesh.etypes
-        self.mmesh_eidxs = self._gather_mesh_eidxs(mmesh.eidxs)
+        self.mmesh_eidxs_gathered = mmesh.collectall('eidxs')
+
+        if len(set(self.mmesh_eidxs_gathered.keys())) != len(self.etypes):
+            raise ValueError(f"All ranks must have all etypes in mmesh.eidxs.")
 
         # Initialize indexing dictionaries
         self._scount = {}
@@ -454,48 +1140,107 @@ class AlltoallRelocator(AlltoallMixin):
         self._inv_sidxs = {}
         self._inv_ridxs = {}
 
-    def update_mesh(self, new_mesh_copy: _Mesh):
-        # Make new_mesh_copy_eidxs accessible in other methods
-        self.new_mesh_copy_eidxs = self._gather_mesh_eidxs(new_mesh_copy.eidxs)
+        if target is not None:
 
+            self.target = target
+            self.target_eidxs_gathered = target.collectall('eidxs')
+
+            for etype in self.etypes:
+                self.relocation_indexing(etype, invert=True)
+
+    def copy(self):
+        """
+        Create a deep copy of the MeshInterConnector instance.
+        Note: We avoid copying MPI communicators and other non-copyable attributes.
+        """
+        new_copy = MeshInterConnector.__new__(MeshInterConnector)
+        new_copy.comm = self.comm
+        new_copy.rank = self.rank
+        new_copy.root = self.root
+        new_copy.neighbours = self.neighbours.copy()
+        new_copy.etypes = self.etypes.copy()
+        new_copy.mmesh_eidxs_gathered = deepcopy(self.mmesh_eidxs_gathered)
+
+        # Copy the indexing dictionaries
+        new_copy._scount = deepcopy(self._scount)
+        new_copy._sdisp = deepcopy(self._sdisp)
+        new_copy._rcount = deepcopy(self._rcount)
+        new_copy._rdisp = deepcopy(self._rdisp)
+        new_copy._sidxs = deepcopy(self._sidxs)
+        new_copy._ridxs = deepcopy(self._ridxs)
+
+        new_copy._inv_scount = deepcopy(self._inv_scount)
+        new_copy._inv_sdisp = deepcopy(self._inv_sdisp)
+        new_copy._inv_rcount = deepcopy(self._inv_rcount)
+        new_copy._inv_rdisp = deepcopy(self._inv_rdisp)
+        new_copy._inv_sidxs = deepcopy(self._inv_sidxs)
+        new_copy._inv_ridxs = deepcopy(self._inv_ridxs)
+
+        # Copy other attributes
+        if hasattr(self, '_logger'):
+            new_copy._logger = self._logger  # Share the same logger
+
+        return new_copy
+
+    @log_method_times
+    def recreate_reorder_recreate_mesh(self):
         for etype in self.etypes:
-            self.relocation_indexing(etype, self.new_mesh_copy_eidxs, invert=False)
-            self.relocation_indexing(etype, self.new_mesh_copy_eidxs, invert=True)
+            self.target.interconnector[self.mmesh.mmesh_name].relocation_indexing(etype)
+            #self.relocation_indexing(etype, invert=False)
 
-        self._recreate_mesh(new_mesh_copy, reordered=False)
+        # Print entire eidxs of target for debugging
+        self._logger.error(f"Target eidxs: {self.target.eidxs['hex']}")
 
-        # Reorder eidxs to ensure the following order:
-        # [MPI-curved, MPI-linear, internal-curved, internal-linear]
-        target_new_eidxs = self._reorder_elements(new_mesh_copy)
+        self._recreate_mesh_invert_false(reordered=False)
 
+        self._reorder_elements(self.target)
         # Repeat mesh reconstruction with reordered eidxs
-        self._recreate_mesh(new_mesh_copy, reordered=False, invert=True)
-        new_mesh_copy.eidxs = target_new_eidxs
-        self.new_mesh_copy_eidxs = self._gather_mesh_eidxs(new_mesh_copy.eidxs)
+        self._recreate_mesh_invert_true()
+
+        self.target_eidxs_gathered = self.target.collectall('eidxs')
+        self.target.interconnector[self.mmesh.mmesh_name].mmesh_eidxs_gathered = self.target.collectall('eidxs')
+
         for etype in self.etypes:
-            self.relocation_indexing(etype, self.new_mesh_copy_eidxs, invert=False)
-            self.relocation_indexing(etype, self.new_mesh_copy_eidxs, invert=True)
-        self._recreate_mesh(new_mesh_copy, reordered=True)
-        
-    def _recreate_mesh(self, mesh, reordered, invert=False):
+            self.relocation_indexing(etype, invert=True)
+            self.target.interconnector[self.mmesh.mmesh_name].relocation_indexing(etype)
+            #self.relocation_indexing(etype, invert=False)
 
-        # Reconstruct everything needed
-        mesh.eles        = self.relocate(mesh.eles,        invert=invert)
-        mesh.spts_curved = self.relocate(mesh.spts_curved, invert=invert)
+        self._recreate_mesh_invert_false(reordered=True)
 
-        if not invert:
-            if reordered:
-                mesh.spts       = self.relocate(mesh.spts      )
-                mesh.spts_nodes = self.relocate(mesh.spts_nodes)
-            self._reconstruct_con(mesh, mesh.eles)
-            self.set_mpi_elems(mesh)
+    @log_method_times
+    def _recreate_mesh_invert_true(self):
 
-    def set_mpi_elems(self, mesh):
+        self.target.eles        = self.relocate(self.target.eles)
+        self.target.spts_curved = self.relocate(self.target.spts_curved)
 
-        # Find all elements that lie on the MPI boundary
+    @log_method_times
+    def _recreate_mesh_invert_false(self, reordered):
+
+        self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
+        self.target.spts_curved = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_curved)
+
+        #self.target.eles        = self.relocate(self.target.eles, invert=False)
+        #self.target.spts_curved = self.relocate(self.target.spts_curved, invert=False)
+
+        if reordered:
+
+            self.target.spts       = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
+            self.target.spts_nodes = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_nodes)
+
+            #self.target.spts       = self.relocate(self.target.spts, invert=False)
+            #self.target.spts_nodes = self.relocate(self.target.spts_nodes, invert=False)
+
+        # BUG: ERROR HERE
+
+        self._reconstruct_con()
+        self.set_mpi_elems()
+
+    def set_mpi_elems(self):
+
+        # Find elements sharing an MPI interface
         ifmpi = {etype: [] for etype in self.etypes}
 
-        for nrank, ncon in mesh.con_p.items():
+        for nrank, ncon in self.target.con_p.items():
             for etype, eidx, fidx in ncon:
                 ifmpi[etype].append(eidx)
 
@@ -503,18 +1248,26 @@ class AlltoallRelocator(AlltoallMixin):
         for etype in self.etypes:
             ifmpi[etype] = np.unique(ifmpi[etype])
 
-        # Towards lexsort we need a boolean array for each element type
-        mesh.spts_internal = {etype: np.ones(mesh.eles[etype].shape[0], dtype=bool) for etype in self.etypes}
+        # `lexsort` needs boolean array of if-internal for each etype
+        self.target.spts_internal = {etype: 
+                                     np.ones(self.target.eles[etype].shape[0], 
+                                            dtype=bool
+                                            ) 
+                                      for etype in self.etypes
+                                    }
         
         for etype, eidxs in ifmpi.items():
-            mesh.spts_internal[etype][eidxs.astype(int)] = False
+            self.target.spts_internal[etype][eidxs.astype(int)] = False
 
-    def _reorder_elements(self, mesh):
-        # Reorder the elements, consider the following ordering
-        # pidx = np.lexsort((ecurved, ~internal))
+    @log_method_times
+    def _reorder_elements(self, mesh: _Mesh):
+        """
+        Reorder the elements based on the following criteria:
+        MPI-curved --> MPI-linear (treated as curved) --> curved --> linear
+        """
 
         new_target_eidxs = {etype: [] for etype in self.etypes}
-                
+
         for etype in self.etypes:
             ordered_idx = np.lexsort(( mesh.spts_curved[etype], 
                                        mesh.spts_internal[etype])) 
@@ -523,26 +1276,19 @@ class AlltoallRelocator(AlltoallMixin):
             else:
                 new_target_eidxs[etype] = mesh.eidxs[etype]
 
-        return new_target_eidxs
+        mesh.eidxs = new_target_eidxs
 
-    def _gather_mesh_eidxs(self, mesh_eidxs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    @log_method_times
+    def relocation_indexing(self, etype, invert=True):
+        """
+        Create 1D arrays of send and receive indices for the given element type.
+        """
 
-        gathered_mesh_eidxs = {}
-        for etype in self.etypes:
-
-            # If exists, convert to numpy array. Else, use empty array
-            elems = mesh_eidxs[etype] if etype in mesh_eidxs else np.array([], dtype=np.int32)
-
-            if not isinstance(elems, np.ndarray):
-                elems = np.array(elems)
-            gathered_mesh_eidxs[etype] = self.comm.allgather(elems)
-        return gathered_mesh_eidxs
-
-    def relocation_indexing(self, etype, new_mesh_copy_eidxs, invert=False):
         if not invert:
             # Relocation
-            base_mesh_eidxs = self.mmesh_eidxs
-            end_mesh_eidxs = new_mesh_copy_eidxs
+            self._logger.info(f"Mapping mesh eidxs for {etype}")
+            base_mesh_eidxs = self.mmesh_eidxs_gathered
+            end_mesh_eidxs = self.target_eidxs_gathered
             _sidxs = self._sidxs
             _scount = self._scount
             _sdisp = self._sdisp
@@ -551,8 +1297,9 @@ class AlltoallRelocator(AlltoallMixin):
             _rdisp = self._rdisp
         else:
             # Unrelocation
-            base_mesh_eidxs = new_mesh_copy_eidxs
-            end_mesh_eidxs = self.mmesh_eidxs
+            self._logger.info(f"Inverse-mapping mesh eidxs for {etype}")
+            base_mesh_eidxs = self.target_eidxs_gathered
+            end_mesh_eidxs = self.mmesh_eidxs_gathered
             _sidxs = self._inv_sidxs
             _scount = self._inv_scount
             _sdisp = self._inv_sdisp
@@ -587,10 +1334,11 @@ class AlltoallRelocator(AlltoallMixin):
             (_sidxs[etype], (_scount[etype], _sdisp[etype])),
             (_ridxs[etype], (_rcount[etype], _rdisp[etype]))
         )
-    def relocate(self, sary_dict: dict[str, np.ndarray],*, invert: bool=False) -> dict[str, np.ndarray]:
-        return {etype: self._relocate_ary(etype, sary, invert=invert) for etype, sary in sary_dict.items()}
 
-    def _relocate_ary(self, etype: str, ary: np.ndarray,*, invert=False) -> np.ndarray:
+    def relocate(self, sary_dict: dict[str, np.ndarray],*,invert: bool=True) -> dict[str, np.ndarray]:
+        return {etype: self._reloc_ary(etype, sary, invert=invert) for etype, sary in sary_dict.items()}
+
+    def _reloc_ary(self, etype: str, ary: np.ndarray,*, invert=True) -> np.ndarray:
         """
         Relocate data across ranks along elements dimension for each etype.
 
@@ -605,8 +1353,8 @@ class AlltoallRelocator(AlltoallMixin):
 
         if not invert:
             # Relocation
-            base_idxs = self.mmesh_eidxs[etype][self.rank]
-            end_idxs = self.new_mesh_copy_eidxs[etype][self.rank]
+            base_idxs = self.mmesh_eidxs_gathered[etype][self.rank]
+            end_idxs = self.target_eidxs_gathered[etype][self.rank]
             send_idxs = self._sidxs[etype]
             recv_idxs = self._ridxs[etype]
             scount = self._scount[etype]
@@ -615,8 +1363,8 @@ class AlltoallRelocator(AlltoallMixin):
             rdisp = self._rdisp[etype]
         else:
             # Unrelocation
-            base_idxs = self.new_mesh_copy_eidxs[etype][self.rank]
-            end_idxs = self.mmesh_eidxs[etype][self.rank]
+            base_idxs = self.target_eidxs_gathered[etype][self.rank]
+            end_idxs = self.mmesh_eidxs_gathered[etype][self.rank]
             send_idxs = self._inv_sidxs[etype]
             recv_idxs = self._inv_ridxs[etype]
             scount = self._inv_scount[etype]
@@ -646,7 +1394,11 @@ class AlltoallRelocator(AlltoallMixin):
 
         return rary
 
-    def _reconstruct_con(self, mesh, eles):
+    def _reconstruct_con(self):
+
+        mesh = self.target
+        eles = self.target.eles
+
         mesh.bcon = {bc.split('/')[1]: [] for bc in mesh.codec if bc.startswith('bc/')}
         
         codec = mesh.codec
@@ -709,7 +1461,7 @@ class AlltoallRelocator(AlltoallMixin):
         if resid:
             self._reconstruct_mpi_con(mesh, glmap, cefidx, resid)
 
-    def _reconstruct_mpi_con(self, mesh, glmap, cefidx, resid):
+    def _reconstruct_mpi_con(self, mesh: _Mesh, glmap, cefidx, resid):
         comm, rank, root = get_comm_rank_root()
 
         # Create a neighbourhood collective communicator
@@ -744,3 +1496,18 @@ class AlltoallRelocator(AlltoallMixin):
 
             # Add the connectivity to the mesh
             mesh.con_p[nrank] = nncon
+
+    def initialise_logger(self, name, level):
+        comm, rank, root = get_comm_rank_root()
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.propagate = False
+        file_handler = logging.FileHandler(f'/scratch/EFFORTS/LoadBalancer/logging/{name}-{rank}.log')
+        file_handler.setLevel(level)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.info("_______________________________________________")
+        logger.info(f"{name} initialized.") 
+
+        return logger

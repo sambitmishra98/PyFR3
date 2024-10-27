@@ -5,6 +5,7 @@ from weakref import WeakValueDictionary
 
 import h5py
 import numpy as np
+from pyfr.loadrelocator import LoadRelocator
 from pytools import prefork
 
 from pyfr.inifile import NoOptionError
@@ -230,6 +231,19 @@ class RegionMixin:
             # Obtain the global element numbers
             geidxs = intg.system.mesh.eidxs[etype][eidxs]
             self._ele_region_data[etype] = geidxs
+
+class LoadBalanceMixin:
+    def __init__(self, intg, *args, **kwargs):
+        super().__init__(intg, *args, **kwargs)
+
+        # If load balancing is enabled for the plugin   
+        self.load_balance = self.cfg.getbool(self.cfgsect, 'load-balance', False)
+
+        # Get relocator from intg
+        self.load_relocator: LoadRelocator = intg.load_relocator
+
+        # Add mesh for load balancing   
+        self.load_relocator.mm.copy_mmesh('base', self.cfgsect)
 
 class SurfaceMixin:
     def _surf_region(self, intg):

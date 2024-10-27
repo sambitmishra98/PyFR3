@@ -2,12 +2,12 @@ import numpy as np
 
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root
-from pyfr.plugins.base import BaseSolnPlugin, PostactionMixin, RegionMixin
+from pyfr.plugins.base import BaseSolnPlugin, LoadBalanceMixin, PostactionMixin, RegionMixin
 from pyfr.writers.native import NativeWriter
 from pyfr.util import first
 
 
-class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
+class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin, BaseSolnPlugin):
     name = 'writer'
     systems = ['*']
     formulations = ['dual', 'std']
@@ -41,6 +41,8 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         # Output time step and last output time
         self.dt_out = self.cfg.getfloat(cfgsect, 'dt-out')
         self.tout_last = intg.tcurr
+
+        self.minimal_writing = self.cfg.getbool(cfgsect, 'minimal-writing', False)
 
         # Output field names
         self.fields = list(first(intg.system.ele_map.values()).convars)
@@ -129,7 +131,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
 
         # Write out the file
         self._writer.write(data, intg.tcurr, metadata, self._async_timeout,
-                           callback)
+                           callback, self.minimal_writing)
 
         # Update the last output time
         self.tout_last = intg.tcurr

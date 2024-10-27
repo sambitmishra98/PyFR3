@@ -1,6 +1,6 @@
 from pyfr.integrators.std.base import BaseStdIntegrator
 from pyfr.util import memoize
-
+from pyfr.mpiutil import get_comm_rank_root, mpi
 
 class BaseStdStepper(BaseStdIntegrator):
     _stepper_nfevals_prev = 0.
@@ -13,26 +13,29 @@ class BaseStdStepper(BaseStdIntegrator):
 
     @property
     def performances(self):
+        comm, rank, root = get_comm_rank_root()
+
         # Get Performance
-        diff_fevals = self._stepper_nfevals - self._stepper_nfevals_prev
+        #diff_fevals = self._stepper_nfevals - self._stepper_nfevals_prev
 
         # Per RHS evaluation time
-        wtime     = self.system.rhs_wait_times()[0][0]
-        otime        = self.system.rhs_other_times()[0][0]
+        wtime = self.system.rhs_wait_times()[0][0]
+        otime = self.system.rhs_other_times()[0][0]
 
-        #ttime  = otime - (self.pdiff + self.lbdiff) /50
-        ttime  = otime - (self.pdiff) / diff_fevals
-        ctime = ttime + wtime
+        ctime = comm.allreduce(otime + wtime, op=mpi.SUM) / comm.size
+        ttime = ctime - wtime
 
         # Computations in this rank
         dofs = sum(self.system.ele_ndofs)
 
         cperf = dofs/ctime
-        tperf  = dofs/ttime
+        tperf = dofs/ttime
 
         self.lb_times = { 
             'current': ctime, 'target': ttime, 'lost': wtime, 'lb': self.lbdiff,
             }
+
+        print(f"Wait time: {wtime}, \t Target time: {ttime}")
 
         self.lb_perfs = {
             'current': cperf, 'target': tperf, 'lost': tperf - cperf,

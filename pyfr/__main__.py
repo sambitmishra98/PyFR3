@@ -8,6 +8,9 @@ import mpi4py.rc
 import numpy as np
 mpi4py.rc.initialize = False
 
+#from rich.traceback import install
+#install(show_locals=True, width=250, )
+
 from pyfr._version import __version__
 from pyfr.backends import BaseBackend, get_backend
 from pyfr.inifile import Inifile

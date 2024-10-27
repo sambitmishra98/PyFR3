@@ -22,7 +22,7 @@ class _Mesh:
     uuid: str = None
     version: int = None
 
-    etypes: list = field(default_factory=list)
+    etypes: list[str] = field(default_factory=list)
     eidxs: dict = field(default_factory=dict)
 
     spts: dict = field(default_factory=dict)
@@ -35,9 +35,6 @@ class _Mesh:
     bcon: dict = field(default_factory=dict)
 
     eles: dict = field(default_factory=dict)
-
-    def copy(self):
-        return replace(self)
 
 class NativeReader:
     def __init__(self, fname, pname=None, *, construct_con=True):

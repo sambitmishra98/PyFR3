@@ -53,7 +53,7 @@ class BaseStdController(BaseStdIntegrator):
         self.stepinfo = []
 
         if self.nacptsteps % self.coll_wtimes == 0:
-            target_nelems = self.relocator.observe(self.performances)
+            target_nelems = self.load_relocator.observe(self.performances)
             if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
                 lbstart = perf_counter_ns()
                 self.balance(self.system.mesh, target_nelems)

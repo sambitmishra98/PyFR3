@@ -61,7 +61,7 @@ class BaseIntegrator:
         # Extract the UUID of the mesh (to be saved with solutions)
         self.mesh_uuid = mesh.uuid
 
-        self.relocator = LoadRelocator(mesh)
+        self.load_relocator = LoadRelocator(mesh)
         self.observe_only = cfg.getbool('mesh', 'observe-only', True)
         self.lb_nsteps = self.cfg.getint('mesh', 'load-balancing-nsteps', 1000)
 
@@ -185,6 +185,7 @@ class BaseIntegrator:
 
     def collect_stats(self, stats):
         wtime = time.time() - self._wstart
+        #wtime = comm.allreduce(wtime, op=mpi.SUM)/comm.size
 
         # Simulation and wall clock times
         stats.set('solver-time-integrator', 'tcurr', self.tcurr)
@@ -198,9 +199,15 @@ class BaseIntegrator:
 
             stats.set('solver-time-integrator', k, t)
 
-        # Sum up all plugin wall times
-        self.pcurr = sum(self._plugin_wtimes.values())
-        self.pdiff, self.pprev = self.pcurr - self.pprev, self.pcurr
+        ## Add all plugin times
+        #ptime = sum(self._plugin_wtimes.values())
+
+        # Ensure all ranks have same value
+        #self.wdiff = wtime - ptime - self._wprev
+        #self._wprev = wtime - ptime
+        
+        #self.wdiff = wtime - self._wprev
+        #self._wprev = wtime
 
         # Step counts
         stats.set('solver-time-integrator', 'nsteps', self.nsteps)
@@ -242,24 +249,13 @@ class BaseIntegrator:
 
     def balance(self, mesh, target_nelems):
 
-        self.relocator.diffuse(target_nelems)
-        
-        mesh = self.relocator.mesh
+        mesh, soln = self.load_relocator.diffuse('compute', 
+                                                 target_nelems, ary = self.soln)
 
-        # Mesh-dependant parameters changed below
-        # 1: solution
-        soln = self.relocator.relocate(
-            {m:s for m,s in zip(mesh.eidxs.keys(), self.soln)}, edim=2)
-
-        # 2: system
-        # Reconstruct and recommit the sytem
-        self.system = self._systemcls(self.backend, mesh, list(soln.values()), 
+        self.system = self._systemcls(self.backend, mesh, soln, 
                                     nregs=self.nregs, cfg=self.cfg)
         self.system.commit()
         self.system.preproc(self.tcurr, self._idxcurr)
-
-        # Work on mesh: Unrelocate --> Delete --> relocate
-        self.relocator.update_metamesh(mesh)
 
 class BaseCommon:
     def _get_gndofs(self):

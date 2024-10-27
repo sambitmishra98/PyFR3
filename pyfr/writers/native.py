@@ -89,9 +89,11 @@ class NativeWriter:
             self._awriter.wait()
             self._awriter = None
 
-    def write(self, data, tcurr, metadata=None, timeout=0, callback=None):
+    def write(self, data, tcurr, metadata=None, timeout=0, callback=None, minimal_writing = False):
         async_ = bool(timeout)
         comm, rank, root = get_comm_rank_root()
+
+        self.minimal_writing = minimal_writing
 
         # Wait for any existing write operations to finish
         if self._awriter is not None:
@@ -150,25 +152,27 @@ class NativeWriter:
             for k, v in metadata.items():
                 f[k] = v
 
-            # Create the datasets
-            g = f.create_group(self.prefix)
-            for ek, (gatherer, subset, shape, *_) in self._einfo.items():
-                g.create_dataset(ek, shape, self.fpdtype)
-                g.create_dataset(f'{ek}-parts', shape[0:1], np.int32)
-                g.create_dataset(f'{ek}-geidxs', shape[0:1], np.int64)
-                g.create_dataset(f'{ek}-leidxs', shape[0:1], np.int64)
+            if not self.minimal_writing:
 
-                if subset:
-                    g.create_dataset(f'{ek}-idxs', shape[0:1], np.int64)
+                # Create the datasets
+                g = f.create_group(self.prefix)
+                for ek, (gatherer, subset, shape, *_) in self._einfo.items():
+                    g.create_dataset(ek, shape, self.fpdtype)
+                    g.create_dataset(f'{ek}-parts', shape[0:1], np.int32)
+                    g.create_dataset(f'{ek}-geidxs', shape[0:1], np.int64)
+                    g.create_dataset(f'{ek}-leidxs', shape[0:1], np.int64)
 
-            # Add each elements nodal points as an attribute
-            for ek, (*_, upts) in self._einfo.items():
-                g[ek].attrs['pts'] = upts
+                    if subset:
+                        g.create_dataset(f'{ek}-idxs', shape[0:1], np.int64)
 
-            # Obtain the offsets of these datasets
-            for k, v in g.items():
-                v[(-1,)*v.ndim] = 0
-                doffs[k] = v.id.get_offset()
+                # Add each elements nodal points as an attribute
+                for ek, (*_, upts) in self._einfo.items():
+                    g[ek].attrs['pts'] = upts
+
+                # Obtain the offsets of these datasets
+                for k, v in g.items():
+                    v[(-1,)*v.ndim] = 0
+                    doffs[k] = v.id.get_offset()
 
         return doffs
 
@@ -190,26 +194,28 @@ class NativeWriter:
         # Track the active write requests
         reqs = []
 
-        def write_off(k, v, n):
-            if len(v):
-                args = (doffs[k] + n*(v.nbytes // len(v)), v)
-                if async_:
-                    reqs.append(f.Iwrite_at(*args))
-                else:
-                    f.Write_at(*args)
+        if not self.minimal_writing:
 
-        # Write out our element data
-        for ek, (gatherer, subset, *_) in self._einfo.items():
-            write_off(ek, data[ek], gatherer.off)
-            write_off(f'{ek}-parts', gatherer.rsrc, gatherer.off)
-            write_off(f'{ek}-geidxs', gatherer.ridx, gatherer.off)
-            local_indices = np.arange(self._ecounts[ek.split('-')[1]], 
-                                      dtype=np.int64)
-            write_off(f'{ek}-leidxs', gatherer(local_indices), gatherer.off)
+            def write_off(k, v, n):
+                if len(v):
+                    args = (doffs[k] + n*(v.nbytes // len(v)), v)
+                    if async_:
+                        reqs.append(f.Iwrite_at(*args))
+                    else:
+                        f.Write_at(*args)
 
-            # If the element has been subset then write the index data
-            if subset:
-                write_off(f'{ek}-idxs', gatherer.ridx, gatherer.off)
+            # Write out our element data
+            for ek, (gatherer, subset, *_) in self._einfo.items():
+                write_off(ek, data[ek], gatherer.off)
+                write_off(f'{ek}-parts', gatherer.rsrc, gatherer.off)
+                write_off(f'{ek}-geidxs', gatherer.ridx, gatherer.off)
+                local_indices = np.arange(self._ecounts[ek.split('-')[1]], 
+                                        dtype=np.int64)
+                write_off(f'{ek}-leidxs', gatherer(local_indices), gatherer.off)
+
+                # If the element has been subset then write the index data
+                if subset:
+                    write_off(f'{ek}-idxs', gatherer.ridx, gatherer.off)
 
         return f, reqs
 
