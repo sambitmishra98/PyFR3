@@ -4,6 +4,9 @@ from dataclasses import dataclass, field, replace
 import re
 import time
 
+# Import deque
+from collections import deque
+
 import numpy as np
 from tabulate import tabulate
 
@@ -520,12 +523,12 @@ class _MetaMeshes:
         # Delete all src --> dest connections
         for mesh_name, mmesh in self.mmeshes.items():
             if src_name in mmesh.interconnector:
-                self._logger.warning(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
+                self._logger.info(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
                 del mmesh.interconnector[src_name]
 
         # Delete all dest --> src connections
         if dest_name in self.mmeshes[src_name].interconnector:
-            self._logger.warning(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
+            self._logger.info(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
             del self.mmeshes[src_name].interconnector[dest_name]
 
         self.mmeshes[dest_name] = self.mmeshes[src_name]
@@ -712,7 +715,10 @@ class LoadRelocator:
 
         self.tol = tol
 
-    def observe(self, mesh_name, perfs,*, K_p=1, K_i=1, K_d=1):
+        self.targets_hist = deque(maxlen=2)
+
+
+    def observe(self, mesh_name, perfs,*, K_p=1, K_i=0, K_d=0):
 
         comm, rank, root = get_comm_rank_root()
         
@@ -728,11 +734,22 @@ class LoadRelocator:
 
         self._logger.info(f"Cost: {self.cost}")
 
-        # Set initial new_mesh and new_ary
-        target_nelems = self.mm.gnelems*self.cost[rank] / sum(self.cost)
-        nelems_diff   = self.mm.get_mmesh(mesh_name).nelems - target_nelems
-        target_nelems = self.mm.get_mmesh(mesh_name).nelems - nelems_diff*K_p
-        nelems_diff   = self.mm.get_mmesh(mesh_name).nelems - target_nelems
+        # Surely we will gain if we reach to this target. But destination is far away.
+        sure_gains_nelems = self.mm.gnelems * self.cost[rank]/sum(self.cost)
+        curr_nelems = self.mm.get_mmesh(mesh_name).nelems
+        sure_gains_diff = sure_gains_nelems - curr_nelems
+
+        # Use PID controller
+        control_output  =  K_p * sure_gains_diff
+        control_output +=  K_i * (self.targets_hist[-1] + self.targets_hist[-2])/2 \
+                         + K_d * (self.targets_hist[-1] - self.targets_hist[-2]) if len(self.targets_hist) == 2 else 0
+        target_nelems = curr_nelems + control_output
+        nelems_diff = target_nelems - curr_nelems
+
+        self.targets_hist.append(target_nelems)
+
+        # Print all of them for debugging
+        self. _logger.error(f"{sure_gains_diff = }, \t{control_output = }, \t{target_nelems = }, \t{nelems_diff = }")
 
         return target_nelems, nelems_diff
 
@@ -764,11 +781,11 @@ class LoadRelocator:
             self.mm.mmeshes[m].ary_here = m == mesh_name
         
         ii = 0
-        if_diffuse = comm.allreduce((nelems_diff/target_nelems) > self.tol, op=mpi.MAX)
+        if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN)
         while if_diffuse:
 
             ii += 1
-            nelems_diff = self.mm.get_mmesh(mesh_name+'_base').nelems - target_nelems
+            nelems_diff = target_nelems - self.mm.get_mmesh(mesh_name+'_base').nelems
 
             self._logger.info(f"no. elements moved out: {nelems_diff}")
             self._logger.info(f"No. of interfaces: {self.mm.get_mmesh(mesh_name+'_base').ncon_p_nrank_etype}")
@@ -777,9 +794,9 @@ class LoadRelocator:
             move_elems = self.reloc_interface_elems(to_nrank, self.mm.get_mmesh(mesh_name+'_base'))
 
             print(f"iter{ii}: Start: {self.mm.get_mmesh(mesh_name).nelems} "
-                  f" Currently: {self.mm.get_mmesh(mesh_name+'_base').nelems} --"
+                  f" Currently: {self.mm.get_mmesh(mesh_name+'_base').nelems} --> ("
                   f" {target_nelems - self.mm.get_mmesh(mesh_name+'_base').nelems}"
-                  f" --> {target_nelems}")
+                  f") --> {target_nelems}")
 
             # Using reference mesh, create a temporary mesh
             self.mm.copy_mmesh(mesh_name+'_base', 
@@ -789,7 +806,7 @@ class LoadRelocator:
             print(self.mm)
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_base')
 
-            if_diffuse = comm.allreduce((nelems_diff/target_nelems) > self.tol, op=mpi.MAX)
+            if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN)
 
         # Set new array and solution here
         new_mesh = self.mm.get_mmesh(mesh_name+ '_base').to_mesh()
@@ -857,7 +874,7 @@ class LoadRelocator:
         move_to_nrank = np.zeros((nranks, nranks))
         for nrank, inters in ncon_p_nrank_etype.items():
             if nelems_diff != 0:
-                move_to_nrank[rank,nrank] = nelems_diff * ncon_p_nrank[nrank] / ncon_p
+                move_to_nrank[rank,nrank] = -nelems_diff * ncon_p_nrank[nrank] / ncon_p
 
         move_to_nrank = comm.allreduce(move_to_nrank, op=mpi.SUM)
         move_to_nrank = np.maximum((move_to_nrank - move_to_nrank.T) / 2, 0)
@@ -1192,9 +1209,6 @@ class MeshInterConnector(AlltoallMixin):
         for etype in self.etypes:
             self.target.interconnector[self.mmesh.mmesh_name].relocation_indexing(etype)
             #self.relocation_indexing(etype, invert=False)
-
-        # Print entire eidxs of target for debugging
-        self._logger.error(f"Target eidxs: {self.target.eidxs['hex']}")
 
         self._recreate_mesh_invert_false(reordered=False)
 
