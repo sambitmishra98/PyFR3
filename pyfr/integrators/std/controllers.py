@@ -59,7 +59,7 @@ class BaseStdController(BaseStdIntegrator):
 
             if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
                 comm, rank, root = get_comm_rank_root()
-                if not comm.allreduce((nelems_diff/target_nelems) < self.tol, op=mpi.MIN):
+                if not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN):
                     lbstart = perf_counter_ns()
                     self.balance(self.system.mesh, target_nelems, nelems_diff)
                     self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
