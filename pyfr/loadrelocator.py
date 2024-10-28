@@ -16,31 +16,25 @@ import logging
 from termcolor import colored
 from typing import List, Dict
 
-LOG_LEVEL=20
+LOG_LEVEL=30
 
 # Fix seed
 np.random.seed(47)
 
 def log_method_times(method):
     def wrapper(self, *args, **kwargs):
-        start_time = time.perf_counter()
+        tstart = time.perf_counter()
         result = method(self, *args, **kwargs)
-        end_time = time.perf_counter()
+        tdiff = time.perf_counter() - tstart
+
+        l = self._logger
+        mname = method.__name__
 
         # If more than 1 second, mark warning
-        if end_time - start_time > 10:
-            self._logger.critical(
-                f"EXTREMELY HIGH WALLTIME: {method.__name__}: {end_time - start_time:.4f} s")
-        if end_time - start_time > 5:
-            self._logger.error(
-                f"V-HIGH WALLTIME:  \t {method.__name__}: {end_time - start_time:.4f} s")
-        elif end_time - start_time > 1:
-            self._logger.warning(
-                f"HIGH WALLTIME:  \t {method.__name__}: {end_time - start_time:.4f} s")
-        else:
-            self._logger.debug(
-                f"Method {method.__name__} executed in {end_time - start_time:.4f} s")
-
+        if   tdiff>10: l.critical(f"WALLTIME: \t {mname}: {tdiff:.4f} s")
+        elif tdiff> 5: l.error(   f"WALLTIME: \t {mname}: {tdiff:.4f} s")
+        elif tdiff> 1: l.warning( f"WALLTIME: \t {mname}: {tdiff:.4f} s")
+        else: self._logger.debug( f"walltime: \t {mname}: {tdiff:.4f} s")
         return result
     return wrapper
 
@@ -57,11 +51,6 @@ def log_method_args(method):
         self._logger.debug(f"Calling {method.__name__} with args: {', '.join(arg_strs)}")
         return method(self, *args, **kwargs)
     return wrapper
-
-# Create a decorator for logging. This will get the size of the output numpy array.
-# If it is not a numpy array, then this will give error.
-
-# If the returned instance is of type _Mesh, then get size of entire mesh
 
 def log_output_size(method):
     def wrapper(self, *args, **kwargs):
