@@ -684,13 +684,20 @@ class _MetaMeshes:
         else:
             return ''
 
+    def short_str(self):
+        """
+        A shortened version of mesh statistics towards logging.
+        For now, only print the number of elements for 'compute' mesh.
+        """
+        self._logger.info(f"Compute-mesh: {self.get_mmesh('compute').nelems} elements")
+
     def initialise_logger(self, name, level):
         comm, rank, root = get_comm_rank_root()
         logger = logging.getLogger(name)
         logger.setLevel(level)
         logger.propagate = False
         file_handler = logging.FileHandler(
-            f'/scratch/EFFORTS/LoadBalancer/logging/{name}-{rank}.log')
+            f'logging/{name}-{rank}.log')
         file_handler.setLevel(level)
         formatter = logging.Formatter(
             '%(asctime)s - %(levelname)s  - %(message)s')
@@ -706,7 +713,7 @@ class LoadRelocator:
     # Initialise as an empty list
     etypes = []
 
-    def __init__(self, base_mesh: _Mesh):
+    def __init__(self, base_mesh: _Mesh, tol):
 
         self._logger = self.initialise_logger(__name__, LOG_LEVEL)
 
@@ -714,7 +721,9 @@ class LoadRelocator:
         self.mm.add_mmesh('base', _MetaMesh.from_mesh(base_mesh), if_base=True)
         self.mm.copy_mmesh('base', 'compute')
 
-    def observe(self, perfs):
+        self.tol = tol
+
+    def observe(self, mesh_name, perfs):
 
         comm, rank, root = get_comm_rank_root()
         
@@ -730,10 +739,15 @@ class LoadRelocator:
 
         self._logger.info(f"Cost: {self.cost}")
 
-        return self.mm.gnelems*self.cost[rank] / sum(self.cost)
+        # Set initial new_mesh and new_ary
+        target_nelems = self.mm.gnelems*self.cost[rank] / sum(self.cost)
+        nelems_diff = self.mm.get_mmesh(mesh_name).nelems - target_nelems
+
+        return target_nelems, nelems_diff
 
     @log_method_times
-    def diffuse(self, mesh_name, target_nelems,*, ary):
+    def diffuse(self, mesh_name, target_nelems, nelems_diff, ary, * , 
+                K_p=1, K_i=1, K_d=1):
         comm, rank, root = get_comm_rank_root()
 
         if LOG_LEVEL < 30:
@@ -752,12 +766,8 @@ class LoadRelocator:
 
             sum_ary_allreduced = np.array(comm.allreduce(np.sum(ary), op=mpi.SUM))
 
-        # Set initial new_mesh and new_ary
-        nelems_diff = self.mm.get_mmesh(mesh_name).nelems - target_nelems
-
-        ncon_p = self.mm.get_mmesh(mesh_name).ncon_p
-        tolerable_imbalance = np.max(comm.allgather(ncon_p))/100
-        print( f"Tolerable elements imbalance in each rank: {tolerable_imbalance}")
+        target_nelems = self.mm.get_mmesh(mesh_name).nelems - nelems_diff*K_p
+        nelems_diff   = self.mm.get_mmesh(mesh_name).nelems - target_nelems
 
         # Create a mesh called mesh_name+'_base'. 
         self.mm.copy_mmesh(mesh_name, mesh_name+'_base')
@@ -767,13 +777,15 @@ class LoadRelocator:
             self.mm.mmeshes[m].ary_here = m == mesh_name
         
         ii = 0
-        while comm.allreduce(np.abs(nelems_diff), op=mpi.SUM) >  tolerable_imbalance or ii == 0:
+        if_diffuse = comm.allreduce((nelems_diff/target_nelems) > self.tol, op=mpi.MAX)
+        while if_diffuse:
+
             ii += 1
             print(f"iter{ii} Current nelems: {self.mm.get_mmesh(mesh_name+'_base').nelems}, target: {target_nelems}")
 
             nelems_diff = self.mm.get_mmesh(mesh_name+'_base').nelems - target_nelems
             self._logger.info(f"no. elements moved out: {nelems_diff}")
-            self._logger.info(f"Possible movements: {self.mm.get_mmesh(mesh_name+'_base').ncon_p_nrank_etype}")
+            self._logger.info(f"No. of interfaces: {self.mm.get_mmesh(mesh_name+'_base').ncon_p_nrank_etype}")
 
             to_nrank = self.figure_out_move_to_nrank(nelems_diff, self.mm.get_mmesh(mesh_name+'_base'))
             move_elems = self.reloc_interface_elems(to_nrank, self.mm.get_mmesh(mesh_name+'_base'))
@@ -785,6 +797,8 @@ class LoadRelocator:
                                          self.mm.get_mmesh(mesh_name+'_base')))
             print(self.mm)
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_base')
+
+            if_diffuse = comm.allreduce((nelems_diff/target_nelems) > self.tol, op=mpi.MAX)
 
         # Set new array and solution here
         new_mesh = self.mm.get_mmesh(mesh_name+ '_base').to_mesh()
@@ -1027,7 +1041,7 @@ class LoadRelocator:
         logger = logging.getLogger(name)
         logger.setLevel(level)
         logger.propagate = False
-        file_handler = logging.FileHandler(f'/scratch/EFFORTS/LoadBalancer/logging/{name}-{rank}.log')
+        file_handler = logging.FileHandler(f'logging/{name}-{rank}.log')
         file_handler.setLevel(level)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s  - %(message)s')
         file_handler.setFormatter(formatter)
@@ -1502,7 +1516,7 @@ class MeshInterConnector(AlltoallMixin):
         logger = logging.getLogger(name)
         logger.setLevel(level)
         logger.propagate = False
-        file_handler = logging.FileHandler(f'/scratch/EFFORTS/LoadBalancer/logging/{name}-{rank}.log')
+        file_handler = logging.FileHandler(f'logging/{name}-{rank}.log')
         file_handler.setLevel(level)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(formatter)

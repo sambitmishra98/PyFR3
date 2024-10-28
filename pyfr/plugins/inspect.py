@@ -30,7 +30,7 @@ class InspectPlugin(BaseSolnPlugin):
         self._logger.propagate = False
         
         # Create a file handler
-        log_file_path = logging.FileHandler('/scratch/EFFORTS/LoadBalancer/logging/plugin-inspect.log')
+        log_file_path = logging.FileHandler('logging/plugin-inspect.log')
         log_file_path.setLevel(logging.INFO)
 
         # Create a formatter and set it for the handler

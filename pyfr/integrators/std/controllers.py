@@ -53,11 +53,19 @@ class BaseStdController(BaseStdIntegrator):
         self.stepinfo = []
 
         if self.nacptsteps % self.coll_wtimes == 0:
-            target_nelems = self.load_relocator.observe(self.performances)
+            target_nelems, nelems_diff = self.load_relocator.observe('compute', 
+                                                              self.performances)
+
             if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
-                lbstart = perf_counter_ns()
-                self.balance(self.system.mesh, target_nelems)
-                self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
+                comm, rank, root = get_comm_rank_root()
+                if comm.allreduce((nelems_diff/target_nelems) > self.tol, op=mpi.MAX):
+                    lbstart = perf_counter_ns()
+                    self.balance(self.system.mesh, target_nelems, nelems_diff)
+                    self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
+                else:
+                    self.lbdiff = 0
+                    print(f'Only {np.round(nelems_diff).int()} elements away from target {np.round(target_nelems).int()} '
+                          f'Skipping load balancing')
 
     def _reject_step(self, dt, idxold, err=None):
         if dt <= self.dtmin:

@@ -6,6 +6,8 @@ import time
 
 import numpy as np
 
+import gc
+
 from pyfr.mpiutil import get_comm_rank_root, mpi, scal_coll
 from pyfr.plugins import get_plugin
 from pyfr.util import memoize
@@ -61,9 +63,13 @@ class BaseIntegrator:
         # Extract the UUID of the mesh (to be saved with solutions)
         self.mesh_uuid = mesh.uuid
 
-        self.load_relocator = LoadRelocator(mesh)
         self.observe_only = cfg.getbool('mesh', 'observe-only', True)
         self.lb_nsteps = self.cfg.getint('mesh', 'load-balancing-nsteps', 1000)
+        self.tol = self.cfg.getfloat('mesh', 'imbalance-tolerence', 0.01)
+        self.K_p = self.cfg.getint('mesh', 'diffusion-K_p', 1)
+        self.K_i = self.cfg.getint('mesh', 'diffusion-K_i', 1)
+        self.K_d = self.cfg.getint('mesh', 'diffusion-K_d', 1)
+        self.load_relocator = LoadRelocator(mesh, tol=self.tol)
 
         self.lbdiff = 0.
         self.pprev  = 0.
@@ -247,10 +253,18 @@ class BaseIntegrator:
             reason = self._abort_reason
             sys.exit(comm.allreduce(reason, op=lambda x, y: x or y))
 
-    def balance(self, mesh, target_nelems):
+    def balance(self, mesh, target_nelems, nelems_diff):
 
         mesh, soln = self.load_relocator.diffuse('compute', 
-                                                 target_nelems, ary = self.soln)
+                                                 target_nelems, 
+                                                 nelems_diff, 
+                                                 ary = self.soln,
+                                                 K_p=self.K_p,
+                                                 K_i=self.K_i,
+                                                 K_d=self.K_d,
+                                                 )
+
+        gc.collect()
 
         self.system = self._systemcls(self.backend, mesh, soln, 
                                     nregs=self.nregs, cfg=self.cfg)
