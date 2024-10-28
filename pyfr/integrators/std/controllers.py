@@ -54,7 +54,8 @@ class BaseStdController(BaseStdIntegrator):
 
         if self.nacptsteps % self.coll_wtimes == 0:
             target_nelems, nelems_diff = self.load_relocator.observe('compute', 
-                                                              self.performances)
+                                                              self.performances,
+                                                              K_p=self.K_p)
 
             if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
                 comm, rank, root = get_comm_rank_root()
@@ -64,7 +65,7 @@ class BaseStdController(BaseStdIntegrator):
                     self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
                 else:
                     self.lbdiff = 0
-                    print(f'Only {np.round(nelems_diff).int()} elements away from target {np.round(target_nelems).int()} '
+                    print(f'Only {np.round(nelems_diff)} elements away from target {np.round(target_nelems)} '
                           f'Skipping load balancing')
 
     def _reject_step(self, dt, idxold, err=None):

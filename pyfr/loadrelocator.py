@@ -723,7 +723,7 @@ class LoadRelocator:
 
         self.tol = tol
 
-    def observe(self, mesh_name, perfs):
+    def observe(self, mesh_name, perfs,*, K_p=1, K_i=1, K_d=1):
 
         comm, rank, root = get_comm_rank_root()
         
@@ -741,13 +741,14 @@ class LoadRelocator:
 
         # Set initial new_mesh and new_ary
         target_nelems = self.mm.gnelems*self.cost[rank] / sum(self.cost)
-        nelems_diff = self.mm.get_mmesh(mesh_name).nelems - target_nelems
+        nelems_diff   = self.mm.get_mmesh(mesh_name).nelems - target_nelems
+        target_nelems = self.mm.get_mmesh(mesh_name).nelems - nelems_diff*K_p
+        nelems_diff   = self.mm.get_mmesh(mesh_name).nelems - target_nelems
 
         return target_nelems, nelems_diff
 
     @log_method_times
-    def diffuse(self, mesh_name, target_nelems, nelems_diff, ary, * , 
-                K_p=1, K_i=1, K_d=1):
+    def diffuse(self, mesh_name, target_nelems, nelems_diff, ary):
         comm, rank, root = get_comm_rank_root()
 
         if LOG_LEVEL < 30:
@@ -766,9 +767,6 @@ class LoadRelocator:
 
             sum_ary_allreduced = np.array(comm.allreduce(np.sum(ary), op=mpi.SUM))
 
-        target_nelems = self.mm.get_mmesh(mesh_name).nelems - nelems_diff*K_p
-        nelems_diff   = self.mm.get_mmesh(mesh_name).nelems - target_nelems
-
         # Create a mesh called mesh_name+'_base'. 
         self.mm.copy_mmesh(mesh_name, mesh_name+'_base')
 
@@ -781,14 +779,18 @@ class LoadRelocator:
         while if_diffuse:
 
             ii += 1
-            print(f"iter{ii} Current nelems: {self.mm.get_mmesh(mesh_name+'_base').nelems}, target: {target_nelems}")
-
             nelems_diff = self.mm.get_mmesh(mesh_name+'_base').nelems - target_nelems
+
             self._logger.info(f"no. elements moved out: {nelems_diff}")
             self._logger.info(f"No. of interfaces: {self.mm.get_mmesh(mesh_name+'_base').ncon_p_nrank_etype}")
 
             to_nrank = self.figure_out_move_to_nrank(nelems_diff, self.mm.get_mmesh(mesh_name+'_base'))
             move_elems = self.reloc_interface_elems(to_nrank, self.mm.get_mmesh(mesh_name+'_base'))
+
+            print(f"iter{ii}: Start: {self.mm.get_mmesh(mesh_name).nelems} "
+                  f" Currently: {self.mm.get_mmesh(mesh_name+'_base').nelems} --"
+                  f" {target_nelems - self.mm.get_mmesh(mesh_name+'_base').nelems}"
+                  f" --> {target_nelems}")
 
             # Using reference mesh, create a temporary mesh
             self.mm.copy_mmesh(mesh_name+'_base', 

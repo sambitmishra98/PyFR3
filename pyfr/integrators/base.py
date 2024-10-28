@@ -13,6 +13,8 @@ from pyfr.plugins import get_plugin
 from pyfr.util import memoize
 from pyfr.loadrelocator import LoadRelocator
 
+from pyfr.backends import get_backend
+
 
 def _common_plugin_prop(attr):
     def wrapfn(fn):
@@ -259,13 +261,16 @@ class BaseIntegrator:
                                                  target_nelems, 
                                                  nelems_diff, 
                                                  ary = self.soln,
-                                                 K_p=self.K_p,
-                                                 K_i=self.K_i,
-                                                 K_d=self.K_d,
                                                  )
 
+        backend_name = self.backend.name
+
+        del self.system
+        del self.backend
+        
         gc.collect()
 
+        self.backend = get_backend(backend_name, self.cfg)
         self.system = self._systemcls(self.backend, mesh, soln, 
                                     nregs=self.nregs, cfg=self.cfg)
         self.system.commit()
