@@ -68,10 +68,15 @@ class BaseIntegrator:
         self.observe_only = cfg.getbool('mesh', 'observe-only', True)
         self.lb_nsteps = self.cfg.getint('mesh', 'load-balancing-nsteps', 1000)
         self.tol = self.cfg.getfloat('mesh', 'imbalance-tolerence', 0.01)
-        self.K_p = self.cfg.getint('mesh', 'diffusion-K_p', 1)
-        self.K_i = self.cfg.getint('mesh', 'diffusion-K_i', 1)
-        self.K_d = self.cfg.getint('mesh', 'diffusion-K_d', 1)
-        self.load_relocator = LoadRelocator(mesh, tol=self.tol)
+        self.K_p = self.cfg.getfloat('mesh', 'diffusion-K_p', 1)
+        self.K_i = self.cfg.getfloat('mesh', 'diffusion-K_i', 1)
+        self.K_d = self.cfg.getfloat('mesh', 'diffusion-K_d', 1)
+        self.K_win = self.cfg.getint('mesh', 'diffusion-K_window', 2)
+        self.load_relocator = LoadRelocator(mesh, tol=self.tol,
+                                                  K_p=self.K_p, 
+                                                  K_i=self.K_i,
+                                                  K_d=self.K_d, 
+                                                  K_win=self.K_win)
 
         self.lbdiff = 0.
         self.pprev  = 0.
@@ -275,6 +280,8 @@ class BaseIntegrator:
                                     nregs=self.nregs, cfg=self.cfg)
         self.system.commit()
         self.system.preproc(self.tcurr, self._idxcurr)
+        get_comm_rank_root()[0].Barrier()
+
 
 class BaseCommon:
     def _get_gndofs(self):

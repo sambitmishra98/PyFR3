@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -10,7 +12,7 @@ from collections import deque
 import numpy as np
 from tabulate import tabulate
 
-from pyfr.mpiutil import get_comm_rank_root, AlltoallMixin, mpi
+from pyfr.mpiutil import Scatterer, get_comm_rank_root, AlltoallMixin, mpi
 from pyfr.nputil import iter_struct
 from pyfr.readers.native import _Mesh
 
@@ -90,10 +92,13 @@ def log_output_size(method):
 class _MetaMesh(_Mesh):
 
     mmesh_name: str = field(default="")
-    interconnector: dict = field(default_factory=dict)
-    spts_internal: dict = field(default_factory=dict)
+    interconnector: dict[str, MeshInterConnector] = field(default_factory=dict)
+    spts_internal: dict[str,np.ndarray[bool]] = field(default_factory=dict)
     recreated: bool = field(default=False)
     ary_here: bool = field(default=False)
+    
+    # Store variables that are re-used for connectivity functions
+    glmap: dict = field(default_factory=dict)
     
     def copy(self, name):
         return replace(self, interconnector={}, mmesh_name=name)
@@ -125,6 +130,12 @@ class _MetaMesh(_Mesh):
             ary_here=False,
         )
         
+    def create_glmap(self):
+        self.glmap = [{}]*len(self.etypes)
+        for i, etype in enumerate(self.etypes):
+            if etype in self.eidxs:
+                self.glmap[i] = {k: j for j, k in enumerate(self.eidxs[etype])}
+
     @property
     def nelems_etype(self):
         return {etype: len(self.eidxs[etype]) for etype in self.etypes}
@@ -701,11 +712,14 @@ class _MetaMeshes:
         return logger
 
 
-class LoadRelocator:
+class LoadRelocator(AlltoallMixin):
     # Initialise as an empty list
     etypes = []
 
-    def __init__(self, base_mesh: _Mesh, tol):
+    def __init__(self, base_mesh: _Mesh, tol, K_p=1, 
+                                              K_i=0, 
+                                              K_d=0, 
+                                              K_win=2):
 
         self._logger = self.initialise_logger(__name__, LOG_LEVEL)
 
@@ -715,10 +729,14 @@ class LoadRelocator:
 
         self.tol = tol
 
+        self.K_p = K_p
+        self.K_i = K_i
+        self.K_d = K_d
+        self.K_win = K_win
+
         self.targets_hist = deque(maxlen=2)
 
-
-    def observe(self, mesh_name, perfs,*, K_p=1, K_i=0, K_d=0):
+    def observe(self, mesh_name, perfs):
 
         comm, rank, root = get_comm_rank_root()
         
@@ -740,16 +758,27 @@ class LoadRelocator:
         sure_gains_diff = sure_gains_nelems - curr_nelems
 
         # Use PID controller
-        control_output  =  K_p * sure_gains_diff
-        control_output +=  K_i * (self.targets_hist[-1] + self.targets_hist[-2])/2 \
-                         + K_d * (self.targets_hist[-1] - self.targets_hist[-2]) if len(self.targets_hist) == 2 else 0
+        control_output  =  self.K_p * sure_gains_diff
+        control_output +=  self.K_i * (self.targets_hist[-1] + self.targets_hist[-2] - 2*sure_gains_diff)/2 \
+                         + self.K_d * (self.targets_hist[-1] - self.targets_hist[-2]) if len(self.targets_hist) == 2 else 0
         target_nelems = curr_nelems + control_output
         nelems_diff = target_nelems - curr_nelems
 
         self.targets_hist.append(target_nelems)
 
         # Print all of them for debugging
-        self. _logger.error(f"{sure_gains_diff = }, \t{control_output = }, \t{target_nelems = }, \t{nelems_diff = }")
+        self. _logger.error(f"{sure_gains_diff = }, \t{control_output = } = {self.K_p * sure_gains_diff} + {self.K_i * np.mean(self.targets_hist)}, \t{target_nelems = }, \t{nelems_diff = }")
+
+        # If any of the target elements are negative, throw error
+        if target_nelems < 0:
+            raise ValueError(f"Target elements cannot be negative: rank {rank}: {target_nelems}."
+                             "Possible causes:\n"
+                                "- Insufficiently loaded ranks.\n"
+                                "- Improperly tuned PID controller.\n")
+
+        # Check if the total number of elements across all ranks is still equal to gnelems
+        if comm.allreduce(nelems_diff, op=mpi.SUM) > 1:
+            raise ValueError(f"Total number of elements across all ranks is not equal to gnelems.")
 
         return target_nelems, nelems_diff
 
@@ -794,16 +823,15 @@ class LoadRelocator:
             move_elems = self.reloc_interface_elems(to_nrank, self.mm.get_mmesh(mesh_name+'_base'))
 
             print(f"iter{ii}: Start: {self.mm.get_mmesh(mesh_name).nelems} "
-                  f" Currently: {self.mm.get_mmesh(mesh_name+'_base').nelems} --> ("
+                  f" \t Currently: {self.mm.get_mmesh(mesh_name+'_base').nelems} --> \t ("
                   f" {target_nelems - self.mm.get_mmesh(mesh_name+'_base').nelems}"
-                  f") --> {target_nelems}")
+                  f") --> \t {target_nelems}")
 
             # Using reference mesh, create a temporary mesh
             self.mm.copy_mmesh(mesh_name+'_base', 
                                mesh_name+'-temp', 
                                self.get_preordered_eidxs(move_elems, 
                                          self.mm.get_mmesh(mesh_name+'_base')))
-            print(self.mm)
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_base')
 
             if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN)
@@ -824,8 +852,6 @@ class LoadRelocator:
             self.mm.mmeshes[m].ary_here = m == mesh_name
             
         print(self.mm)
-
-        print("-" * 80)
 
         if LOG_LEVEL < 30:
             new_mesh_shape = [len(new_mesh.eidxs[etype]) for etype in new_mesh.etypes]
@@ -901,8 +927,14 @@ class LoadRelocator:
                         for etype in self.mm.etypes
                 } for nrank in mesh.con_p.keys()
             }
+        
+        # Empty if self
+        move_elems[rank] = {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes}
 
-        return self.remove_duplicate_movements(move_elems, mesh)
+        # move_elems in ascending order of comm.size
+        move_elems_f = {nrank: move_elems[nrank] for nrank in sorted(move_elems.keys())}
+
+        return self.remove_duplicate_movements(move_elems_f, mesh)
 
     def remove_duplicate_movements(self, 
                                    move_elems: dict[int, dict[str, np.ndarray]],
@@ -955,15 +987,21 @@ class LoadRelocator:
     @log_method_times
     def get_preordered_eidxs(self, 
                              move_to_nrank: dict[int, dict[str, np.ndarray]],
-                             mesh: _MetaMesh):
+                             mesh: _MetaMesh) -> dict[str, np.ndarray[int]]:
         """
         Get new element indices on each rank after relocation.
         """
 
         comm, rank, root = get_comm_rank_root()
         
+        #LoadRelocator.cprint(move_to_nrank, name=f"Rank {rank} send elements")
+        
         # Sync expected element movement across all ranks
-        moved_from_nrank = self._send_recv(move_to_nrank)
+        #moved_from_nrank = self._send_recv(move_to_nrank)
+        #LoadRelocator.cprint(moved_from_nrank , name=f"Rank {rank} moved from nrank")
+
+        moved_from_nrank0 = self._send_recv0(move_to_nrank)
+        #LoadRelocator.cprint(moved_from_nrank0, name=f"Rank {rank} moved from nrank0")
 
         # For convinience, set the compute mesh to a variable
         compute_mesh = mesh
@@ -978,7 +1016,7 @@ class LoadRelocator:
             new_mesh_eidxs[etype] = np.setdiff1d(new_mesh_eidxs[etype], elements_to_remove)
 
         for etype in self.mm.etypes:
-            elements_to_add = np.sort(np.concatenate([elements[etype] for elements in moved_from_nrank.values()]))
+            elements_to_add = np.sort(moved_from_nrank0[etype])
             new_mesh_eidxs[etype] = np.unique(np.concatenate((new_mesh_eidxs[etype], elements_to_add)).astype(np.int32))
 
         # Count the overall number of elements
@@ -992,7 +1030,52 @@ class LoadRelocator:
 
         return new_mesh_eidxs
 
+    def _send_recv0(self, send_elements: dict[int, dict[str, np.ndarray]]):
+
+        comm, rank, root = get_comm_rank_root()
+
+        recv_elements = {}
+        
+        # Convert to 1D array for each etype
+        for etype in self.mm.etypes:
+            _scount = np.array([len(send_elements[nrank][etype]) for nrank in range(comm.size)], dtype=np.int32)
+            _sdisp = self._count_to_disp(_scount)
+            _sidxs = np.concatenate([send_elements[nrank][etype] for nrank in send_elements]).astype(np.int32)
+
+            #LoadRelocator.cprint(_sidxs,  name=f"Rank {rank} _sidxs  for {etype}")
+            #LoadRelocator.cprint(_scount, name=f"Rank {rank} _scount for {etype}")
+
+            # Communicate to get recieve counts and displacements
+            _, (_rcount, _rdisp) = self._alltoallcv(
+                comm, _sidxs, _scount, _sdisp)
+
+            # Allocate recieve indices array
+            _ridxs = np.empty(
+                (_rcount.sum(), *_sidxs.shape[1:]), 
+                dtype=_sidxs.dtype,
+            )
+
+            self._alltoallv(
+                comm, 
+                (_sidxs, (_scount, _sdisp)),
+                (_ridxs, (_rcount, _rdisp))
+                )
+
+            #LoadRelocator.cprint(_ridxs, name=f"Rank {rank} received elements for {etype}")
+
+            recv_elements[etype] = _ridxs
+
+        return recv_elements
+            
     def _send_recv(self, send_elements: dict[int, dict[str, np.ndarray]]):
+        """
+        Send and receive elements to/from other ranks.
+        
+        Issues identified:
+        - wait() is stuck here for CPU-GPU simulations.
+        
+        """
+
         comm, rank, root = get_comm_rank_root()
 
         # Collect ranks to send to
@@ -1033,6 +1116,79 @@ class LoadRelocator:
 
         return recv_elements
 
+    def _send_recv2(self, send_elements: dict[int, dict[str, np.ndarray]]):
+        """
+        Send and receive elements to/from other ranks using AlltoallMixin.
+
+        Args:
+            send_elements: dict mapping destination rank to a dict of element types and arrays.
+
+        Returns:
+            recv_elements: dict mapping source rank to a dict of element types and arrays.
+        """
+        comm, rank, root = get_comm_rank_root()
+        nranks = comm.size
+        etypes = self.mm.etypes
+
+        # Initialize send counts and displacements for each element type
+        scounts = {etype: np.zeros(nranks, dtype=np.int64) for etype in etypes}
+        sdispls = {etype: np.zeros(nranks, dtype=np.int64) for etype in etypes}
+
+        # Prepare send buffers for each element type
+        svals = {etype: [] for etype in etypes}
+
+        for dest_rank in range(nranks):
+            for etype in etypes:
+                elems = send_elements.get(dest_rank, {}).get(etype, np.array([], dtype=np.int64))
+                scounts[etype][dest_rank] = len(elems)
+                svals[etype].append(elems)
+
+        # Concatenate send buffers and compute displacements
+        for etype in etypes:
+            svals[etype] = np.concatenate(svals[etype]) if svals[etype] else np.array([], dtype=np.int64)
+            sdispls[etype] = self._count_to_disp(scounts[etype])
+
+        # Exchange counts and prepare receive counts and displacements
+        rcounts = {etype: np.zeros(nranks, dtype=np.int64) for etype in etypes}
+        rdispls = {etype: np.zeros(nranks, dtype=np.int64) for etype in etypes}
+
+        print(mpi.INT)
+
+
+        for etype in etypes:
+            # Exchange counts
+            comm.Alltoall([scounts[etype], mpi.INT], [rcounts[etype], mpi.INT])
+            # Compute displacements
+            rdispls[etype] = self._count_to_disp(rcounts[etype])
+
+        # Perform Alltoallv to exchange data
+        recv_elements = {}
+        for etype in etypes:
+            # Prepare receive buffer
+            total_recv_count = rcounts[etype].sum()
+            rvals = np.empty(total_recv_count, dtype=np.int64)
+
+            # Perform the exchange
+            self._alltoallv(
+                comm,
+                (svals[etype], (scounts[etype], sdispls[etype])),
+                (rvals, (rcounts[etype], rdispls[etype]))
+            )
+
+            # Reconstruct recv_elements
+            offset = 0
+            for src_rank in range(nranks):
+                count = rcounts[etype][src_rank]
+                if count > 0 and src_rank != rank:
+                    elems = rvals[offset:offset + count]
+                    if src_rank not in recv_elements:
+                        recv_elements[src_rank] = {}
+                    recv_elements[src_rank][etype] = elems
+                    offset += count
+                elif count > 0:
+                    offset += count  # Skip data from self
+
+        return recv_elements
 
     def get_gcon_p(self, mesh: _Mesh):
         return {
@@ -1127,7 +1283,7 @@ class LoadRelocator:
                 if rank == comm.size - 1:
                     print("-" * 100)
             time.sleep(r/100)
-            comm.Barrier()
+            #comm.Barrier()
 
 class MeshInterConnector(AlltoallMixin):
 
@@ -1238,18 +1394,10 @@ class MeshInterConnector(AlltoallMixin):
         self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
         self.target.spts_curved = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_curved)
 
-        #self.target.eles        = self.relocate(self.target.eles, invert=False)
-        #self.target.spts_curved = self.relocate(self.target.spts_curved, invert=False)
-
         if reordered:
 
             self.target.spts       = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
             self.target.spts_nodes = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_nodes)
-
-            #self.target.spts       = self.relocate(self.target.spts, invert=False)
-            #self.target.spts_nodes = self.relocate(self.target.spts_nodes, invert=False)
-
-        # BUG: ERROR HERE
 
         self._reconstruct_con()
         self.set_mpi_elems()
@@ -1480,6 +1628,52 @@ class MeshInterConnector(AlltoallMixin):
         if resid:
             self._reconstruct_mpi_con(mesh, glmap, cefidx, resid)
 
+    def _reconstruct_con_towards_con_p_only(self):
+
+        mesh = self.target
+        
+        codec = mesh.codec
+        eidxs = {k: v.tolist() for k, v in mesh.eidxs.items()}
+        etypes = mesh.etypes
+
+        # Create a map from global to local element numbers
+        mesh.glmap = mesh.create_glmap()
+
+        # Create cidx indexed maps
+        cdone, cefidx = [None]*len(codec), [None]*len(codec)
+        for cidx, c in enumerate(codec):
+            if (m := re.match(r'eles/(\w+)/(\d+)$', c)):
+                etype, fidx = m[1], m[2]
+                cdone[cidx] = set()
+                cefidx[cidx] = (etype, etypes.index(etype), int(fidx))
+
+        resid = {}
+
+        for etype, einfo in mesh.eles.items():
+
+            try:
+                i = etypes.index(etype)
+                for fidx, eface in enumerate(einfo['faces'].T):
+                    efcidx = codec.index(f'eles/{etype}/{fidx}')
+
+                    for j, (cidx, off) in enumerate(iter_struct(eface)):
+                        if j not in cdone[efcidx] and off != -1:
+                            # Lookup the element type and face number
+                            ketype, ketidx, kfidx = cefidx[cidx]
+
+                            # If our rank has the element then pair it
+                            if (k := mesh.glmap[ketidx].get(off)) is not None:
+                                cdone[cidx].add(k)
+                            # Otherwise add it to the residual dict
+                            else:
+                                resid[efcidx, eidxs[etype][j]] = (cidx, off)
+            except:
+                pass
+
+        # Handle inter-partition connectivity
+        if resid:
+            self._reconstruct_mpi_con(mesh, mesh.glmap, cefidx, resid)
+
     def _reconstruct_mpi_con(self, mesh: _Mesh, glmap, cefidx, resid):
         comm, rank, root = get_comm_rank_root()
 
@@ -1530,3 +1724,52 @@ class MeshInterConnector(AlltoallMixin):
         logger.info(f"{name} initialized.") 
 
         return logger
+
+    def exchange_element_indices(self, send_elements):
+        """
+        Exchange element indices between ranks using existing functionality.
+
+        Args:
+            send_elements: dict[int, dict[str, np.ndarray]], mapping destination rank
+                           to dict of element types and element indices.
+
+        Returns:
+            recv_elements: dict[int, dict[str, np.ndarray]], mapping source rank
+                           to dict of element types and element indices.
+        """
+        nranks = self.comm.size
+
+        recv_elements = {}
+
+        for etype in self.etypes:
+            # Prepare send indices and counts
+            svals = []
+            scounts = np.zeros(nranks, dtype=int)
+
+            for dest_rank in range(nranks):
+                if dest_rank == self.rank:
+                    continue
+                elems = send_elements.get(dest_rank, {}).get(etype, np.array([], dtype=int))
+                scounts[dest_rank] = len(elems)
+                svals.append(elems)
+
+            # Concatenate all elements to send
+            svals = np.concatenate(svals) if svals else np.array([], dtype=int)
+
+            # Use _alltoallcv to exchange counts and data
+            rvals, (rcounts, rdisps) = self._alltoallcv(self.comm, svals, scounts)
+
+            # Reconstruct recv_elements
+            offset = 0
+            for src_rank in range(nranks):
+                if src_rank == self.rank:
+                    continue
+                count = rcounts[src_rank]
+                if count > 0:
+                    elems = rvals[offset:offset+count]
+                    if src_rank not in recv_elements:
+                        recv_elements[src_rank] = {}
+                    recv_elements[src_rank][etype] = elems
+                    offset += count
+
+        return recv_elements

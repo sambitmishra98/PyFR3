@@ -54,8 +54,7 @@ class BaseStdController(BaseStdIntegrator):
 
         if self.nacptsteps % self.coll_wtimes == 0:
             target_nelems, nelems_diff = self.load_relocator.observe('compute', 
-                                                              self.performances,
-                                                              K_p=self.K_p)
+                                                              self.performances)
 
             if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
                 comm, rank, root = get_comm_rank_root()
