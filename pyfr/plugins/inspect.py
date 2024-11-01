@@ -307,11 +307,10 @@ class InspectPlugin(BaseSolnPlugin):
                     ydata_rank = ydata_per_rank[rank_idx]
                     rank_label = f"{label} - Rank {rank_idx}"
                     plt.plot(xdata, ydata_rank, label=rank_label, 
-                             marker='o', markersize=1)
+                             marker='o', markersize=2)
             else:
                 # ydata is a list of values
-                plt.plot(xdata, ydata, label=label, 
-                         marker='o', markersize=2)
+                plt.plot(xdata, ydata, label=label, linestyle= '--')
 
         # Set x and y labels
         plt.xlabel(self.xlabel or xlabel)
@@ -328,7 +327,7 @@ class InspectPlugin(BaseSolnPlugin):
         # Add grids
         if self.add_grids:
             plt.grid(which='both', linestyle='--', linewidth=0.5)
-            plt.grid(which='minor', linestyle=':', linewidth='0.5')
+            plt.grid(which='minor', linestyle=':', linewidth=0.5)
             plt.minorticks_on()
             plt.ticklabel_format(style='sci', axis='both', scilimits=(0, 0),)
 

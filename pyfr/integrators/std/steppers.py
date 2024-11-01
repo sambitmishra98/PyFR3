@@ -22,6 +22,8 @@ class BaseStdStepper(BaseStdIntegrator):
         wtime = self.system.rhs_wait_times()[0][0]
         otime = self.system.rhs_other_times()[0][0]
 
+        # CAUTION! Plugin time included into otime !!!!!!!!
+
         ctime = comm.allreduce(otime + wtime, op=mpi.SUM) / comm.size
         ttime = ctime - wtime
 
@@ -35,7 +37,7 @@ class BaseStdStepper(BaseStdIntegrator):
             'current': ctime, 'target': ttime, 'lost': wtime, 'lb': self.lbdiff,
             }
 
-        print(f"Wait time: {wtime}, \t Target time: {ttime}", flush=True)
+        print(f"rank: {rank} \t tcurr: {ctime}, \t t-wait: {wtime}, \t t-target: {ttime}", flush=True)
 
         self.lb_perfs = {
             'current': cperf, 'target': tperf, 'lost': tperf - cperf,

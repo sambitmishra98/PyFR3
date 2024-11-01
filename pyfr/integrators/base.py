@@ -187,7 +187,14 @@ class BaseIntegrator:
         pass
 
     def run(self):
+        comm, rank, root = get_comm_rank_root()
         for t in self.tlist:
+
+            # Place a barrier here.
+            # comm.Barrier()
+            # Maybe backend needs to wait
+            #self.backend.wait()
+
             self.advance_to(t)
 
         self._finalise_plugins()

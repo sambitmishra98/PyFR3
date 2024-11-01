@@ -753,7 +753,12 @@ class LoadRelocator(AlltoallMixin):
         #self.if_maximise = True
 
         # COST OPTION 2: Wait time
-        self.cost = gathered_times['lost'] / sum(gathered_times['lost'])
+        # ISSUE: Making partitioning weights based on wait time biases parititoning from the start.
+        #self.cost = gathered_times['lost'] / sum(gathered_times['lost'])
+        #self.if_maximise = False
+
+        # COST OPTION 3: Lost performance
+        self.cost = gathered_perfs['lost'] / sum(gathered_perfs['lost'])
         self.if_maximise = False
 
         self._logger.info(f"Cost: {self.cost}")
@@ -817,7 +822,8 @@ class LoadRelocator(AlltoallMixin):
         
         ii = 0
         if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN)
-        while if_diffuse:
+        if_high_movement = comm.allreduce(np.abs(nelems_diff) > 1, op=mpi.MIN)
+        while if_diffuse and if_high_movement:
 
             ii += 1
             nelems_diff = target_nelems - self.mm.get_mmesh(mesh_name+'_base').nelems
@@ -841,6 +847,7 @@ class LoadRelocator(AlltoallMixin):
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_base')
 
             if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN)
+            if_high_movement = comm.allreduce(np.abs(nelems_diff) > 1, op=mpi.MIN)
 
         # Set new array and solution here
         new_mesh = self.mm.get_mmesh(mesh_name+ '_base').to_mesh()
