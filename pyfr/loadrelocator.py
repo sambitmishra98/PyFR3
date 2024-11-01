@@ -617,7 +617,11 @@ class _MetaMeshes:
         for etype in etypes:
             columns.append(f'{etype}-all')
 
-        columns.extend(['Total', 'Connections', 'Recreated', 'Solution Here'])
+        columns.extend(['Total', 
+                        #'Connections', # MESH CONNECTIONS 
+                        # 'Recreated', 
+                        'Solution Here'
+                        ])
 
         # Now, collect data from all ranks
         # For each mesh, we need to collect per-rank element counts
@@ -661,10 +665,10 @@ class _MetaMeshes:
                 # Compute total elements across all etypes and ranks
                 total_elements = sum(nelem_etype.values())
 
-                # Get connections for this mesh
-                mesh = self.mmeshes[mesh_name]
-                inter_mesh = list(mesh.interconnector.keys())
-                inter_mesh_str = ', '.join(inter_mesh) if inter_mesh else 'None'
+                # MESH CONNECTIONS
+                #mesh = self.mmeshes[mesh_name]
+                #inter_mesh = list(mesh.interconnector.keys())
+                #inter_mesh_str = ', '.join(inter_mesh) if inter_mesh else 'None'
 
                 # Build the row
                 row = [mesh_name]                       
@@ -675,8 +679,8 @@ class _MetaMeshes:
                 for etype in etypes:               
                     row.append(str(nelem_etype[etype]))
                 row.append(str(total_elements))    
-                row.append(inter_mesh_str)         
-                row.append(str(mesh.recreated))    
+                #row.append(inter_mesh_str)             # MESH CONNECTIONS   
+                #row.append(str(mesh.recreated))    
                 row.append(str(mesh.ary_here))     
                 rows.append(row)                   
 
@@ -825,7 +829,7 @@ class LoadRelocator(AlltoallMixin):
             print(f"iter{ii}: Start: {self.mm.get_mmesh(mesh_name).nelems} "
                   f" \t Currently: {self.mm.get_mmesh(mesh_name+'_base').nelems} --> \t ("
                   f" {target_nelems - self.mm.get_mmesh(mesh_name+'_base').nelems}"
-                  f") --> \t {target_nelems}")
+                  f") --> \t {target_nelems}", flush=True)
 
             # Using reference mesh, create a temporary mesh
             self.mm.copy_mmesh(mesh_name+'_base', 

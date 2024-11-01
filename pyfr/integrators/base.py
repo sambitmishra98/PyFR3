@@ -261,27 +261,23 @@ class BaseIntegrator:
             sys.exit(comm.allreduce(reason, op=lambda x, y: x or y))
 
     def balance(self, mesh, target_nelems, nelems_diff):
+        comm, rank, root = get_comm_rank_root()
 
         mesh, soln = self.load_relocator.diffuse('compute', 
                                                  target_nelems, 
                                                  nelems_diff, 
-                                                 ary = self.soln,
-                                                 )
+                                                 ary = self.soln)
 
         backend_name = self.backend.name
-
-        del self.system
-        del self.backend
         
+        del self.backend        
         gc.collect()
-
         self.backend = get_backend(backend_name, self.cfg)
-        self.system = self._systemcls(self.backend, mesh, soln, 
-                                    nregs=self.nregs, cfg=self.cfg)
+
+        self.system(self.backend, mesh, soln)
         self.system.commit()
         self.system.preproc(self.tcurr, self._idxcurr)
-        get_comm_rank_root()[0].Barrier()
-
+        gc.collect()
 
 class BaseCommon:
     def _get_gndofs(self):

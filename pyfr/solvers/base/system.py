@@ -71,12 +71,12 @@ class BaseSystem:
         self._bc_inters = self._load_bc_inters(mesh, elemap)
         backend.commit()
 
-    def __call__(self, mesh, soln):
+    def __call__(self, backend, mesh, soln):
+        self.backend = backend
         self.mesh = mesh
-        soln = list(soln.values())
 
         # Load the elements
-        eles, elemap = self._reload_eles(mesh, soln, self.nregs, self._nonce)
+        eles, elemap = self._load_eles(mesh, soln, self.nregs, self._nonce)
         self.backend.commit()
 
         # Retain the element map; this may be deleted by clients
@@ -86,6 +86,7 @@ class BaseSystem:
         self.ele_banks = [e.scal_upts for e in eles]
         self.ele_types = list(elemap)
         self.ele_ndofs = [e.neles*e.nupts*e.nvars for e in eles]
+        self.ndofs = sum(self.ele_ndofs)
         self.ele_shapes = {etype: (e.nupts, e.nvars, e.neles)
                            for etype, e in elemap.items()}
 

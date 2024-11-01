@@ -35,7 +35,7 @@ class BaseStdStepper(BaseStdIntegrator):
             'current': ctime, 'target': ttime, 'lost': wtime, 'lb': self.lbdiff,
             }
 
-        print(f"Wait time: {wtime}, \t Target time: {ttime}")
+        print(f"Wait time: {wtime}, \t Target time: {ttime}", flush=True)
 
         self.lb_perfs = {
             'current': cperf, 'target': tperf, 'lost': tperf - cperf,
