@@ -43,7 +43,7 @@ class BaseStdStepper(BaseStdIntegrator):
 
         self._stepper_nfevals_prev = self._stepper_nfevals
 
-        return self.lb_perfs
+        return self.lb_perfs, self.lb_times
 
 class StdEulerStepper(BaseStdStepper):
     stepper_name = 'euler'

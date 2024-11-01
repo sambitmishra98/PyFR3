@@ -740,19 +740,21 @@ class LoadRelocator(AlltoallMixin):
 
         self.targets_hist = deque(maxlen=2)
 
-    def observe(self, mesh_name, perfs):
+    def observe(self, mesh_name, perfs, times):
 
         comm, rank, root = get_comm_rank_root()
         
-        # Function to gather all values from a dictionary
-        def gather_all(data_dict):
-            return {key: np.array(comm.allgather(value)) for key, value in data_dict.items()}
+        # Just use one-liner here instead of function and then its using
+        gathered_perfs = {key: np.array(comm.allgather(value)) for key, value in perfs.items()}
+        gathered_times = {key: np.array(comm.allgather(value)) for key, value in times.items()}
 
-        # Gather all performance and time metrics
-        gathered_perfs = gather_all(perfs)
+        # COST OPTION 1: Target performance
+        #self.cost = gathered_perfs['target'] / sum(gathered_perfs['target'])
+        #self.if_maximise = True
 
-        # Gather the number of elements from all processes
-        self.cost = gathered_perfs['target'] / sum(gathered_perfs['target'])
+        # COST OPTION 2: Wait time
+        self.cost = gathered_times['lost'] / sum(gathered_times['lost'])
+        self.if_maximise = False
 
         self._logger.info(f"Cost: {self.cost}")
 
@@ -934,8 +936,6 @@ class LoadRelocator(AlltoallMixin):
         
         # Empty if self
         move_elems[rank] = {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes}
-
-        # move_elems in ascending order of comm.size
         move_elems_f = {nrank: move_elems[nrank] for nrank in sorted(move_elems.keys())}
 
         return self.remove_duplicate_movements(move_elems_f, mesh)
@@ -955,8 +955,8 @@ class LoadRelocator(AlltoallMixin):
                         for nrank, etypeelems in move_elems.items()
                         }
 
-        # Prioritise decreasing load on the costliest ranks first
-        sorted_ranks = sorted(mesh.con_p.keys(), key=lambda x: self.cost[x], reverse=False)
+        # Prioritise decreasing load on the costliest ranks first, use self.maximise
+        sorted_ranks = sorted(mesh.con_p.keys(), key=lambda x: self.cost[x], reverse=self.if_maximise)
 
         # Step 8: Remove duplicates by iterating over sorted ranks
         for i, nrank in enumerate(sorted_ranks):
