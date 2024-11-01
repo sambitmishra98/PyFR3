@@ -12,7 +12,7 @@ from collections import deque
 import numpy as np
 from tabulate import tabulate
 
-from pyfr.mpiutil import Scatterer, get_comm_rank_root, AlltoallMixin, mpi
+from pyfr.mpiutil import get_comm_rank_root, AlltoallMixin, mpi
 from pyfr.nputil import iter_struct
 from pyfr.readers.native import _Mesh
 
