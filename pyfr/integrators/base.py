@@ -72,11 +72,12 @@ class BaseIntegrator:
         self.K_i = self.cfg.getfloat('mesh', 'diffusion-K_i', 1)
         self.K_d = self.cfg.getfloat('mesh', 'diffusion-K_d', 1)
         self.K_win = self.cfg.getint('mesh', 'diffusion-K_window', 2)
-        self.load_relocator = LoadRelocator(mesh, tol=self.tol,
-                                                  K_p=self.K_p, 
-                                                  K_i=self.K_i,
-                                                  K_d=self.K_d, 
-                                                  K_win=self.K_win)
+        self.load_relocator = LoadRelocator(mesh, 
+                                            tol=self.tol,
+                                            K_p=self.K_p, 
+                                            K_i=self.K_i,
+                                            K_d=self.K_d, 
+                                            K_win=self.K_win)
 
         self.lbdiff = 0.
         self.pprev  = 0.
@@ -86,6 +87,7 @@ class BaseIntegrator:
         # Record the starting wall clock time
         self._wstart = time.time()
         self._wprev = 0.
+        self._pprev = 0.
 
         # Record the total amount of time spent in each plugin
         self._plugin_wtimes = defaultdict(lambda: 0)
@@ -220,7 +222,8 @@ class BaseIntegrator:
             stats.set('solver-time-integrator', k, t)
 
         ## Add all plugin times
-        #ptime = sum(self._plugin_wtimes.values())
+        ptime = sum(self._plugin_wtimes.values())
+        self._pcurr, self.pprev = ptime - self.pprev, ptime
 
         # Ensure all ranks have same value
         #self.wdiff = wtime - ptime - self._wprev

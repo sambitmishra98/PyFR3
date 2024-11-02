@@ -16,16 +16,15 @@ class BaseStdStepper(BaseStdIntegrator):
         comm, rank, root = get_comm_rank_root()
 
         # Get Performance
-        #diff_fevals = self._stepper_nfevals - self._stepper_nfevals_prev
+        diff_fevals, self._stepper_nfevals_prev = self._stepper_nfevals - self._stepper_nfevals_prev, self._stepper_nfevals
 
         # Per RHS evaluation time
-        wtime = self.system.rhs_wait_times()[0][0]
-        otime = self.system.rhs_other_times()[0][0]
+        waittime = self.system.rhs_wait_times()[0][0]
+        otime = self.system.rhs_other_times()[0][0] # CAUTION! Plugin time included !!!!!!!!
 
-        # CAUTION! Plugin time included into otime !!!!!!!!
-
-        ctime = comm.allreduce(otime + wtime, op=mpi.SUM) / comm.size
-        ttime = ctime - wtime
+        ptime = self._pcurr/diff_fevals
+        ctime = comm.allreduce(otime + waittime - ptime, op=mpi.SUM) / comm.size
+        ttime = ctime - waittime
 
         # Computations in this rank
         dofs = sum(self.system.ele_ndofs)
@@ -34,16 +33,15 @@ class BaseStdStepper(BaseStdIntegrator):
         tperf = dofs/ttime
 
         self.lb_times = { 
-            'current': ctime, 'target': ttime, 'lost': wtime, 'lb': self.lbdiff,
+            'current': ctime, 'target': ttime, 'lost': waittime, 'lb': self.lbdiff,
             }
 
-        print(f"rank: {rank} \t tcurr: {ctime}, \t t-wait: {wtime}, \t t-target: {ttime}", flush=True)
+        print(f"rank: {rank} \t tcurr: {ctime}, \t t-wait: {waittime},  \t t-plugin: {ptime}, \t t-target: {ttime}", flush=True)
 
         self.lb_perfs = {
             'current': cperf, 'target': tperf, 'lost': tperf - cperf,
             }
 
-        self._stepper_nfevals_prev = self._stepper_nfevals
 
         return self.lb_perfs, self.lb_times
 
