@@ -823,7 +823,7 @@ class LoadRelocator():
         abs_nelems_diff = comm.allreduce(np.abs(nelems_diff), op=mpi.SUM)
         abs_target_nelems = comm.allreduce(target_nelems, op=mpi.SUM)
         if_diffuse_all = not abs_nelems_diff/abs_target_nelems < self.tol
-        if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < 0.1*self.tol, op=mpi.MIN)
+        if_diffuse = not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol/comm.size, op=mpi.MIN)
         if_high_movement = comm.allreduce(np.abs(nelems_diff) > 1, op=mpi.MIN)
         if_only_2_elems = comm.allreduce(target_nelems == 2, op=mpi.MIN)
         while if_diffuse_all and if_diffuse and if_high_movement and not if_only_2_elems:
