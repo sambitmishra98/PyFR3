@@ -329,7 +329,17 @@ class Graph:
                 if reqs:
                     self.t = time.perf_counter_ns()
                     other_times.append((self.t - self.te) / 1e9)
-                    mpi.Prequest.Waitall(reqs)
+                    try:
+                        mpi.Prequest.Waitall(reqs)
+                    except:
+                        # Get status
+                        status = mpi.Status()
+                        print(f"rank {rank} \t "
+                                f"status: {status}"
+                                f"tag: {status.tag}"
+                                f"source: {status.source}"
+                                f"error: {status.error}")
+                        
                     self.te = time.perf_counter_ns()
                     wait_times.append((self.te - self.t) / 1e9)
             self._waitall = waitall

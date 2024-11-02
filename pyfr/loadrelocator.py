@@ -21,7 +21,7 @@ import logging
 from termcolor import colored
 from typing import List, Dict
 
-LOG_LEVEL=40
+LOG_LEVEL=20
 
 # Fix seed
 np.random.seed(47)
@@ -749,8 +749,8 @@ class LoadRelocator():
         gathered_times = {key: np.array(comm.allgather(value)) for key, value in times.items()}
 
         # COST OPTION 1: Target performance
-        self.rank_cost = gathered_perfs['target'] / sum(gathered_perfs['target'])
-        self.if_maximise = True
+        #self.rank_cost = gathered_perfs['weird'] / sum(gathered_perfs['weird'])
+        #self.if_maximise = True
 
         # COST OPTION 2: Wait time
         # ISSUE: Making partitioning weights based on wait time biases parititoning from the start.
@@ -758,8 +758,8 @@ class LoadRelocator():
         #self.if_maximise = False
 
         # COST OPTION 3: Lost performance
-        #self.rank_cost = gathered_perfs['lost'] / sum(gathered_perfs['lost'])
-        #self.if_maximise = False
+        self.rank_cost = gathered_perfs['lost'] / sum(gathered_perfs['lost'])
+        self.if_maximise = False
 
         self._logger.info(f"Cost: {self.rank_cost}")
 
@@ -877,7 +877,7 @@ class LoadRelocator():
         # Solution must now only be in the final mesh
         for m in self.mm.mmeshes:
             self.mm.mmeshes[m].ary_here = m == mesh_name
-            
+
         print(self.mm)
 
         if LOG_LEVEL < 30:
@@ -1162,7 +1162,6 @@ class LoadRelocator():
                 if rank == comm.size - 1:
                     print("-" * 100)
             time.sleep(r/100)
-            #comm.Barrier()
 
 class MeshInterConnector(AlltoallMixin):
 

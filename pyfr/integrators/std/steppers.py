@@ -3,7 +3,6 @@ from pyfr.util import memoize
 from pyfr.mpiutil import get_comm_rank_root, mpi
 
 class BaseStdStepper(BaseStdIntegrator):
-    _stepper_nfevals_prev = 0.
 
     def collect_stats(self, stats):
         super().collect_stats(stats)
@@ -15,15 +14,11 @@ class BaseStdStepper(BaseStdIntegrator):
     def performances(self):
         comm, rank, root = get_comm_rank_root()
 
-        # Get Performance
-        diff_fevals, self._stepper_nfevals_prev = self._stepper_nfevals - self._stepper_nfevals_prev, self._stepper_nfevals
-
         # Per RHS evaluation time
         waittime = self.system.rhs_wait_times()[0][0]
         otime = self.system.rhs_other_times()[0][0] # CAUTION! Plugin time included !!!!!!!!
 
-        ptime = self._pcurr/diff_fevals
-        ctime = comm.allreduce(otime + waittime - ptime, op=mpi.SUM) / comm.size
+        ctime = comm.allreduce(otime + waittime - self._pcurr, op=mpi.SUM) / comm.size
         ttime = ctime - waittime
 
         # Computations in this rank
@@ -31,15 +26,16 @@ class BaseStdStepper(BaseStdIntegrator):
 
         cperf = dofs/ctime
         tperf = dofs/ttime
+        wperf = dofs/waittime
 
         self.lb_times = { 
             'current': ctime, 'target': ttime, 'lost': waittime, 'lb': self.lbdiff,
             }
 
-        print(f"rank: {rank} \t tcurr: {ctime}, \t t-wait: {waittime},  \t t-plugin: {ptime}, \t t-target: {ttime}", flush=True)
+        print(f"rank {rank} tcurr: {ctime}, \t t-wait: {waittime},  \t t-plugin: {self._pcurr}, \t t-target: {ttime}", flush=True)
 
         self.lb_perfs = {
-            'current': cperf, 'target': tperf, 'lost': tperf - cperf,
+            'current': cperf, 'target': tperf, 'lost': tperf - cperf, 'weird': wperf,
             }
 
 

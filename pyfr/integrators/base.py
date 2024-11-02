@@ -6,8 +6,6 @@ import time
 
 import numpy as np
 
-import gc
-
 from pyfr.mpiutil import get_comm_rank_root, mpi, scal_coll
 from pyfr.plugins import get_plugin
 from pyfr.util import memoize
@@ -280,14 +278,13 @@ class BaseIntegrator:
 
         backend_name = self.backend.name
         
-        del self.backend        
-        gc.collect()
+        del self.backend
         self.backend = get_backend(backend_name, self.cfg)
 
         self.system(self.backend, mesh, soln)
         self.system.commit()
         self.system.preproc(self.tcurr, self._idxcurr)
-        gc.collect()
+
 
 class BaseCommon:
     def _get_gndofs(self):

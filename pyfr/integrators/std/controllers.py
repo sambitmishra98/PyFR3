@@ -1,7 +1,9 @@
 import math
-from time import perf_counter_ns
+from time import perf_counter_ns, time
 
 import numpy as np
+
+import gc
 
 from pyfr.integrators.std.base import BaseStdIntegrator
 from pyfr.mpiutil import get_comm_rank_root, mpi
@@ -52,21 +54,6 @@ class BaseStdController(BaseStdIntegrator):
         # Clear the step info
         self.stepinfo = []
 
-        if self.nacptsteps % self.coll_wtimes == 0:
-            target_nelems, nelems_diff = self.load_relocator.observe('compute', 
-                                                              *self.performances)
-
-            if self.nacptsteps % self.lb_nsteps == 0 and not self.observe_only:
-                comm, rank, root = get_comm_rank_root()
-                if not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN):
-                    lbstart = perf_counter_ns()
-                    self.balance(self.system.mesh, target_nelems, nelems_diff)
-                    self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
-                else:
-                    self.lbdiff = 0
-                    print(f'Only {np.round(nelems_diff)} elements away from target {np.round(target_nelems)} '
-                          f'Skipping load balancing')
-
     def _reject_step(self, dt, idxold, err=None):
         if dt <= self.dtmin:
             raise RuntimeError('Minimum sized time step rejected')
@@ -99,6 +86,26 @@ class StdNoneController(BaseStdController):
 
             # We are not adaptive, so accept every step
             self._accept_step(dt, idxcurr)
+
+            if self.nsteps % self.coll_wtimes == 0:
+                ptime = sum(self._plugin_wtimes.values())/self.coll_wtimes
+                self._pcurr, self.pprev = ptime - self.pprev, ptime
+
+                target_nelems, nelems_diff = self.load_relocator.observe('compute', 
+                                                                *self.performances)
+
+                if self.nsteps % self.lb_nsteps == 0 and not self.observe_only:
+                    comm, rank, root = get_comm_rank_root()
+
+                    if not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN):
+                        lbstart = perf_counter_ns()
+                        self.balance(self.system.mesh, target_nelems, nelems_diff)
+                        self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
+                        print(f'rank {rank} Load balancing took {self.lbdiff} seconds per time step')
+                    else:
+                        self.lbdiff = 0
+                        print(f'Only {np.round(nelems_diff)} elements away from target {np.round(target_nelems)} '
+                            f'Skipping load balancing')
 
 
 class StdPIController(BaseStdController):
