@@ -224,6 +224,12 @@ class LoadBalanceMixin:
         super().__init__(intg, *args, **kwargs)
 
         if self.cfg.getbool(self.cfgsect, 'equipartitioning', False):
+            self.mesh = self.equipartition_mesh(intg)
+        else:
+            self.mesh = intg.system.mesh
+
+    @memoize
+    def equipartition_mesh(self, intg):
             if not hasattr(intg, 'load_relocator'):
                 raise ValueError("Cannot equi-partition without load_relocator.")
 
@@ -239,10 +245,7 @@ class LoadBalanceMixin:
                                                     comm=mpi.COMM_WORLD, 
                                                     ranks_map=list(range(mpi.COMM_WORLD.size)))
             print(f"Equi-partitioning mesh {self.pmmesh_name}")
-
-            self.mesh, ii = self.load_relocator.equipartition_diffuse(self.pmmesh_name)
-        else:
-            self.mesh = intg.system.mesh
+            return self.load_relocator.equipartition_diffuse(self.pmmesh_name)[0]
 
     def recreate_pmesh_ary(self, ary: list[np.ndarray]):
         # If source == dest mmesh, return the same array

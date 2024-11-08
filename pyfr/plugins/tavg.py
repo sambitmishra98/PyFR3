@@ -343,6 +343,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
         return data, metadata
 
     def __call__(self, intg):
+        super().__call__(intg)
         # If we are not supposed to be averaging yet then return
         if intg.tcurr < self.tstart:
             return
@@ -351,6 +352,13 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
 
         # If necessary, run the start-up routines
         if not self._started:
+
+            if hasattr(self, 'load_relocator'):
+                # Connect plugin_new <-- compute_new
+                intg.load_relocator.mm.connect_mmeshes('plugins_new', 
+                                                       'compute_new',
+                                                       overwrite=True)
+
             self._init_accumex(intg)
             self._started = True
 
@@ -359,6 +367,12 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
         doaccum = intg.nacptsteps % self.nsteps == 0
 
         if dowrite or doaccum:
+            if hasattr(self, 'load_relocator'):
+                # Connect plugin_new <-- compute_new
+                intg.load_relocator.mm.connect_mmeshes('plugins_new', 
+                                                       'compute_new',
+                                                       overwrite=True)
+
             # Evaluate the time averaging expressions
             currex = self._eval_acc_exprs(intg)
 
