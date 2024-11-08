@@ -68,7 +68,7 @@ class BaseStdController(BaseStdIntegrator):
 class StdNoneController(BaseStdController):
     controller_name = 'none'
     controller_has_variable_dt = False
-
+    iii = 0
     @property
     def controller_needs_errest(self):
         return False
@@ -88,24 +88,75 @@ class StdNoneController(BaseStdController):
             self._accept_step(dt, idxcurr)
 
             if self.nsteps % self.coll_wtimes == 0:
+                comm, rank, root = get_comm_rank_root()
                 ptime = sum(self._plugin_wtimes.values())/self.coll_wtimes
                 self._pcurr, self.pprev = ptime - self.pprev, ptime
 
-                target_nelems, nelems_diff = self.load_relocator.observe('compute', 
-                                                                *self.performances)
+                t_nelems_byrank = self.load_relocator.calc_target('compute', 
+                                                                self.performances[0])
 
                 if self.nsteps % self.lb_nsteps == 0 and not self.observe_only:
-                    comm, rank, root = get_comm_rank_root()
+                    self.iii += 1
 
-                    if not comm.allreduce(np.abs(nelems_diff/target_nelems) < self.tol, op=mpi.MIN):
-                        lbstart = perf_counter_ns()
-                        self.balance(self.system.mesh, target_nelems, nelems_diff)
-                        self.lbdiff = (perf_counter_ns() - lbstart)/1e9/self.lb_nsteps
-                        print(f'rank {rank} Load balancing took {self.lbdiff} seconds per time step')
+                    lb_tstart = perf_counter_ns()
+                    mesh, iters = self.load_relocator.diffuse_computation('compute', 
+                                                            t_nelems_byrank)
+                    lb_tend = perf_counter_ns()
+
+                    # if nelems_diff is a   list of all zeros, then we don't need to do anything
+                    new_ranks = self.load_relocator.new_ranks
+                    if iters > 0:
+
+                        # Connect plugins mmesh to new compute mesh
+                        self.load_relocator.mm.connect_mmeshes('plugins', 
+                                                               'compute_new',
+                                                               overwrite=True)
+
+                        # Reinitialize the system with the new mesh and solution
+                        soln = self.load_relocator.reloc('compute', 'compute_new',  
+                                    {m:s for m,s in zip(self.load_relocator.mm.etypes, 
+                                                        self.soln)}, 
+                                    edim=2).values()
+
+                        self.lbdiff = (lb_tend - lb_tstart)/1e9
+                        print(f'{rank = } Compute-diffusion took '
+                            f'{self.lbdiff}s in {self.lb_nsteps = }', 
+                            flush=True)
+
+                        # If nelems_diff and t_nelems_byrank are both 0 atth e same ranks 
+                        if len(new_ranks) == comm.size:
+                            print(f"comm remains unchanged", flush=True)
+                        else:
+                            print(f"{new_ranks = }", flush=True)
+                            comm, ranks_map = mpi.update_comm(new_ranks)
+
+                        self.load_relocator.mm.update_mmesh_comm('compute_new',
+                                                            comm, ranks_map)
+
+                        # Reinitialize backend with the new communicator
+                        be_tstart = perf_counter_ns()
+                        self.backend()
+                        be_tend = perf_counter_ns()
+                        print(f"{rank = } Backend reset in {(be_tend-be_tstart)/1e9}s",
+                            flush=True)
+
+                        print(f"{rank = } Solution relocation complete", flush=True)
+
+                        sys_start = perf_counter_ns()
+                        self.system = self._systemcls(self.backend, mesh, 
+                                                      list(soln), 
+                                                    nregs=self.nregs, 
+                                                    cfg=self.cfg)
+                        self.system.commit()
+                        self.system.preproc(self.tcurr, self._idxcurr)
+                        sys_end = perf_counter_ns()
+                        print(f"{rank = } System re-initialized in {(sys_end-sys_start)/1e9}s", 
+                            flush=True)
+                        gc.collect()
                     else:
+                        print(f"{rank = } No need to diffuse", flush=True)
                         self.lbdiff = 0
-                        print(f'Only {np.round(nelems_diff)} elements away from target {np.round(target_nelems)} '
-                            f'Skipping load balancing')
+
 
 
 class StdPIController(BaseStdController):

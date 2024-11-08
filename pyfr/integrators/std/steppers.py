@@ -26,16 +26,17 @@ class BaseStdStepper(BaseStdIntegrator):
 
         cperf = dofs/ctime
         tperf = dofs/ttime
-        wperf = dofs/waittime
 
         self.lb_times = { 
-            'current': ctime, 'target': ttime, 'lost': waittime, 'lb': self.lbdiff,
+            'current': ctime, 'lost': waittime, 'lb': self.lbdiff,
             }
 
-        print(f"rank {rank} tcurr: {ctime}, \t t-wait: {waittime},  \t t-plugin: {self._pcurr}, \t t-target: {ttime}", flush=True)
+        print(f"rank {rank} "
+              f"tcurr: {ctime}, \t t-wait: {waittime}, "
+              f"\t t-plugin: {self._pcurr}", flush=True)
 
         self.lb_perfs = {
-            'current': cperf, 'target': tperf, 'lost': tperf - cperf, 'weird': wperf,
+            'current': cperf, 'lost': tperf - cperf,
             }
 
 

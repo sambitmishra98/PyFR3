@@ -13,14 +13,19 @@ from pyfr.util import file_path_gen, mv, subclass_where
 
 
 class NativeWriter:
-    def __init__(self, intg, basedir, basename, prefix, *, extn='.pyfrs'):
+    def __init__(self, intg, basedir, basename, prefix, 
+                 *, extn='.pyfrs', mesh=None):
         comm, rank, root = get_comm_rank_root()
 
         self.cfg = intg.cfg
 
         # Tally up how many elements of each type our partition has
-        self._ecounts = {etype: len(intg.system.mesh.eidxs.get(etype, []))
-                         for etype in intg.system.mesh.etypes}
+        if mesh is not None:
+            self._ecounts = {etype: len(mesh.eidxs.get(etype, []))
+                            for etype in mesh.etypes}
+        else:
+            self._ecounts = {etype: len(intg.system.mesh.eidxs.get(etype, []))
+                            for etype in intg.system.mesh.etypes}
 
         # Data prefix
         self.prefix = prefix
@@ -218,10 +223,6 @@ class NativeWriter:
                     write_off(f'{ek}-idxs', gatherer.ridx, gatherer.off)
 
         return f, reqs
-
-    def retally_ecounts(self, intg):
-        self._ecounts = {etype: len(intg.system.mesh.eidxs.get(etype, []))
-                        for etype in intg.system.mesh.etypes}
 
 
 class _AsyncCompleter:

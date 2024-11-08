@@ -7,7 +7,7 @@ from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.nputil import npeval
 from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, PostactionMixin,
-                               RegionMixin, cli_external)
+                               RegionMixin, LoadBalanceMixin, cli_external)
 from pyfr.progress import NullProgressBar
 from pyfr.writers.native import NativeWriter
 from pyfr.util import first, merge_intervals
@@ -32,7 +32,7 @@ class TavgMixin:
         return fx, dfx
 
 
-class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
+class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, BaseSolnPlugin):
     name = 'tavg'
     systems = ['*']
     formulations = ['dual', 'std']
@@ -82,7 +82,8 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
         ershapes = {etype: (nfields, emap[etype].nupts) for etype in erdata}
 
         # Construct the file writer
-        self._writer = NativeWriter(intg, basedir, basename, 'tavg')
+        self._writer = NativeWriter(intg, basedir, basename, 'tavg',
+                                    mesh=self.mesh)
         self._writer.set_shapes_eidxs(ershapes, erdata)
 
         # Asynchronous output options
@@ -161,11 +162,20 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
 
         # Compute the gradients
         if self._gradpinfo:
-            grad_soln = intg.grad_soln
+            if hasattr(self, 'load_relocator'):
+                grad_soln = self.recreate_pmesh_ary(intg.grad_soln)
+            else:
+                grad_soln = intg.grad_soln
 
         # Iterate over each element type in the simulation
         for idx, etype, rgn in self._ele_regions:
-            soln = intg.soln[idx][..., rgn].swapaxes(0, 1)
+
+            if hasattr(self, 'load_relocator'):
+                intg_soln = self.recreate_pmesh_ary(intg.soln)
+            else:
+                intg_soln = intg.soln
+
+            soln = intg_soln[idx][..., rgn].swapaxes(0, 1)
 
             # Convert from conservative to primitive variables
             psolns = self.elementscls.con_to_pri(soln, self.cfg)

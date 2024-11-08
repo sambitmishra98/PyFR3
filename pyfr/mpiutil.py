@@ -5,7 +5,13 @@ import sys
 import numpy as np
 
 
+comm = None
+rank = None
+root = None
+
 def init_mpi():
+    global comm, rank, root
+
     import mpi4py.rc
     from mpi4py import MPI
 
@@ -23,6 +29,10 @@ def init_mpi():
 
     # Prevent mpi4py from calling MPI_Finalize
     mpi4py.rc.finalize = False
+
+    comm = MPI.COMM_WORLD
+    rank = comm.rank
+    root = 0
 
     # Intercept any uncaught exceptions
     class ExceptHook:
@@ -47,7 +57,7 @@ def init_mpi():
         exc = excepthook.exception
 
         # If we are exiting normally then call MPI_Finalize
-        if (MPI.COMM_WORLD.size == 1 or exc is None or
+        if (comm.size == 1 or exc is None or
             isinstance(exc, (KeyboardInterrupt, SystemExit))):
             import gc
             gc.collect()
@@ -56,17 +66,22 @@ def init_mpi():
         # Otherwise forcefully abort
         else:
             sys.stderr.flush()
-            MPI.COMM_WORLD.Abort(1)
+            comm.Abort(1)
 
     # Register our exit handler
     atexit.register(onexit)
 
 
-def get_comm_rank_root():
+def get_initial_comm_rank_root():
     from mpi4py import MPI
 
     comm = MPI.COMM_WORLD
     return comm, comm.rank, 0
+
+def get_comm_rank_root():
+    global comm, rank, root
+
+    return comm, rank, root
 
 
 def get_local_rank():
@@ -82,7 +97,7 @@ def get_local_rank():
     else:
         from mpi4py import MPI
 
-        return MPI.COMM_WORLD.Split_type(MPI.COMM_TYPE_SHARED).rank
+        return comm.Split_type(MPI.COMM_TYPE_SHARED).rank
 
 
 def scal_coll(colfn, v, *args, **kwargs):
@@ -313,5 +328,37 @@ class _MPI:
 
         return getattr(MPI, attr)
 
+    def update_comm(self, new_ranks: list[int]):
+        from mpi4py import MPI
+        global comm, rank, root
+
+        # Decide which ranks to keep
+        if rank not in new_ranks:
+            color = MPI.UNDEFINED
+        else:
+            color = 0
+ 
+        # Before splitting
+        print(f"[Balance] Before split: Rank {rank}, Size {comm.Get_size()}", flush=True)
+ 
+        comm = comm.Split(color, key=rank)
+        if comm != MPI.COMM_NULL:
+            rank = comm.Get_rank()
+            root = 0
+        else:
+            MPI.Finalize()
+            sys.exit()
+
+        # After splitting
+        if comm != MPI.COMM_NULL:
+            print(f"[Balance] After split: Rank {comm.rank}, Size {comm.size}", flush=True)
+        else:
+            print(f"[Balance] After split: Rank {rank}, Size N/A (Excluded)", flush=True)
+
+        #return comm, [new_ranks.index(i) if i in new_ranks else None for i in range(MPI.COMM_WORLD.Get_size())] 
+        # Base always has fixed list of ranks [0, 1, 2, 3, 4, 5, 6, 7 .... ]
+        # Compute may have a subset of ranks in some weird order [1, 0, None, 2]
+        # This mapping will be {0: 1, 1: 0, 2: None, 3: 2, 4: None, 5: None, 6: None, 7: None, ....}
+        return comm, {b: new_ranks.index(b) if b in new_ranks else None for b in list(range(MPI.COMM_WORLD.Get_size()))}
 
 mpi = _MPI()

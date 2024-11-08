@@ -11,8 +11,6 @@ from pyfr.plugins import get_plugin
 from pyfr.util import memoize
 from pyfr.loadrelocator import LoadRelocator
 
-from pyfr.backends import get_backend
-
 
 def _common_plugin_prop(attr):
     def wrapfn(fn):
@@ -66,12 +64,14 @@ class BaseIntegrator:
         self.observe_only = cfg.getbool('mesh', 'observe-only', True)
         self.lb_nsteps = self.cfg.getint('mesh', 'load-balancing-nsteps', 1000)
         self.tol = self.cfg.getfloat('mesh', 'imbalance-tolerence', 0.01)
+        low_elem = self.cfg.getint('mesh', 'low-elements-limit', 1024)
         self.K_p = self.cfg.getfloat('mesh', 'diffusion-K_p', 1)
         self.K_i = self.cfg.getfloat('mesh', 'diffusion-K_i', 1)
         self.K_d = self.cfg.getfloat('mesh', 'diffusion-K_d', 1)
         self.K_win = self.cfg.getint('mesh', 'diffusion-K_window', 2)
         self.load_relocator = LoadRelocator(mesh, 
                                             tol=self.tol,
+                                            low_elem = low_elem,
                                             K_p=self.K_p, 
                                             K_i=self.K_i,
                                             K_d=self.K_d, 
@@ -267,24 +267,6 @@ class BaseIntegrator:
 
             reason = self._abort_reason
             sys.exit(comm.allreduce(reason, op=lambda x, y: x or y))
-
-    def balance(self, mesh, target_nelems, nelems_diff):
-        comm, rank, root = get_comm_rank_root()
-
-        mesh, soln = self.load_relocator.diffuse('compute', 
-                                                 target_nelems, 
-                                                 nelems_diff, 
-                                                 ary = self.soln)
-
-        backend_name = self.backend.name
-        
-        del self.backend
-        self.backend = get_backend(backend_name, self.cfg)
-
-        self.system(self.backend, mesh, soln)
-        self.system.commit()
-        self.system.preproc(self.tcurr, self._idxcurr)
-
 
 class BaseCommon:
     def _get_gndofs(self):

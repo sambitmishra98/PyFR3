@@ -29,10 +29,10 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin, BaseSolnPlugi
         # Figure out the shape of each element type in our region
         nvars = self.nvars + self._write_grads*(self.nvars*self.ndims)
         ershapes = {etype: (nvars, emap[etype].nupts) for etype in erdata}
-        self.__ershapes = ershapes
 
         # Construct the solution writer
-        self._writer = NativeWriter(intg, basedir, basename, 'soln')
+        self._writer = NativeWriter(intg, basedir, basename, 'soln', 
+                                    mesh=self.mesh)
         self._writer.set_shapes_eidxs(ershapes, erdata)
 
         # Asynchronous output options
@@ -93,9 +93,17 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin, BaseSolnPlugi
         data = {}
 
         if self._write_grads:
-            soln, grad_soln = intg.soln, intg.grad_soln
+            if hasattr(self, 'load_relocator'):
+                soln = self.recreate_pmesh_ary(intg.soln)
+                grad_soln = self.recreate_pmesh_ary(intg.grad_soln)
+            else:
+                soln, grad_soln = intg.soln, intg.grad_soln
         else:
-            soln, grad_soln = intg.soln, None
+            if hasattr(self, 'load_relocator'):
+                soln = self.recreate_pmesh_ary(intg.soln)
+                grad_soln = None
+            else:
+                soln, grad_soln = intg.soln, None
 
         for idx, etype, rgn in self._ele_regions:
             d = soln[idx][..., rgn].T.astype(self.fpdtype)
@@ -116,9 +124,10 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin, BaseSolnPlugi
         if intg.tcurr - self.tout_last < self.dt_out - self.tol:
             return
 
-        self.regenerate_regions(intg)
-        self._writer.retally_ecounts(intg)
-        self._writer.set_shapes_eidxs(self.__ershapes, self._ele_region_data)
+        if hasattr(self, 'load_relocator'):
+            # Connect plugin_new <-- compute_new
+            intg.load_relocator.mm.connect_mmeshes('plugins_new', 'compute_new',
+                                                   overwrite=True)
 
         # Prepare the data and metadata
         data = self._prepare_data(intg)
@@ -126,7 +135,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin, BaseSolnPlugi
 
         # Prepare a callback to kick off any postactions
         callback = lambda fname, t=intg.tcurr: self._invoke_postaction(
-            intg=intg, mesh=intg.system.mesh.fname, soln=fname, t=t
+            intg=intg, mesh=self.mesh.fname, soln=fname, t=t
         )
 
         # Write out the file

@@ -9,7 +9,7 @@ from pyfr.loadrelocator import LoadRelocator
 from pytools import prefork
 
 from pyfr.inifile import NoOptionError
-from pyfr.mpiutil import get_comm_rank_root, mpi
+from pyfr.mpiutil import get_comm_rank_root, mpi, get_initial_comm_rank_root
 from pyfr.quadrules import get_quadrule
 from pyfr.regions import parse_region_expr
 from pyfr.util import memoize
@@ -59,7 +59,7 @@ def open_hdf5_a(path):
 
 
 def region_data(cfg, cfgsect, mesh):
-    comm, rank, root = get_comm_rank_root()
+    comm, rank, root = get_initial_comm_rank_root()
     region = cfg.get(cfgsect, 'region', '*')
 
     # Determine the element types in our partition
@@ -70,7 +70,7 @@ def region_data(cfg, cfgsect, mesh):
         return {etype: slice(None) for etype in etypes}
     # All elements inside some region
     else:
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_initial_comm_rank_root()
 
         # Parse the region expression and obtain the element set
         rgn = parse_region_expr(region, mesh.raw.get('regions'))
@@ -87,7 +87,7 @@ def region_data(cfg, cfgsect, mesh):
 def surface_data(cfg, cfgsect, mesh):
     surf = cfg.get(cfgsect, 'surface')
 
-    comm, rank, root = get_comm_rank_root()
+    comm, rank, root = get_initial_comm_rank_root()
 
     # Parse the surface expression and obtain the element set
     rgn = parse_region_expr(surf, mesh.raw.get('regions'))
@@ -182,7 +182,7 @@ class PostactionMixin:
             prefork.wait(self.postactaid)
 
     def _invoke_postaction(self, intg, **kwargs):
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_initial_comm_rank_root()
 
         # If we have a post-action and are the root rank then fire it
         if rank == root and self.postact:
@@ -206,44 +206,57 @@ class RegionMixin:
         super().__init__(intg, *args, **kwargs)
 
         # Parse the region
-        ridxs = region_data(self.cfg, self.cfgsect, intg.system.mesh)
+        ridxs = region_data(self.cfg, self.cfgsect, self.mesh)
 
         # Generate the appropriate metadata arrays
         self._ele_regions, self._ele_region_data = [], {}
         for etype, eidxs in ridxs.items():
-            doff = intg.system.ele_types.index(etype)
+            doff = self.mesh.etypes.index(etype)
             self._ele_regions.append((doff, etype, eidxs))
 
             # Obtain the global element numbers
-            geidxs = intg.system.mesh.eidxs[etype][eidxs]
+            geidxs = self.mesh.eidxs[etype][eidxs]
             self._ele_region_data[etype] = geidxs
 
-    def regenerate_regions(self, intg):
-        # Parse the region
-        ridxs = region_data(self.cfg, self.cfgsect, intg.system.mesh)
-
-        # Generate the appropriate metadata arrays
-        self._ele_regions, self._ele_region_data = [], {}
-        for etype, eidxs in ridxs.items():
-            doff = intg.system.ele_types.index(etype)
-            self._ele_regions.append((doff, etype, eidxs))
-
-            # Obtain the global element numbers
-            geidxs = intg.system.mesh.eidxs[etype][eidxs]
-            self._ele_region_data[etype] = geidxs
 
 class LoadBalanceMixin:
     def __init__(self, intg, *args, **kwargs):
         super().__init__(intg, *args, **kwargs)
 
-        # If load balancing is enabled for the plugin   
-        self.load_balance = self.cfg.getbool(self.cfgsect, 'load-balance', False)
+        if self.cfg.getbool(self.cfgsect, 'equipartitioning', False):
+            if not hasattr(intg, 'load_relocator'):
+                raise ValueError("Cannot equi-partition without load_relocator.")
 
-        # Get relocator from intg
-        self.load_relocator: LoadRelocator = intg.load_relocator
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'plugins'
+            self.dest_mmesh = self.pmmesh_name+'_new'
+            self.load_relocator: LoadRelocator = intg.load_relocator
+            self.load_relocator.mm.copy_mmesh(self.src_mmesh, self.pmmesh_name)
+            self.load_relocator.mm.copy_mmesh(self.pmmesh_name, self.pmmesh_name+"_new")
 
-        # Add mesh for load balancing   
-        self.load_relocator.mm.copy_mmesh('base', self.cfgsect)
+            # Ensure all ranks are used for equi-partitioning mesh
+            self.load_relocator.mm.update_mmesh_comm(self.pmmesh_name, 
+                                                    comm=mpi.COMM_WORLD, 
+                                                    ranks_map=list(range(mpi.COMM_WORLD.size)))
+            print(f"Equi-partitioning mesh {self.pmmesh_name}")
+
+            self.mesh, ii = self.load_relocator.equipartition_diffuse(self.pmmesh_name)
+        else:
+            self.mesh = intg.system.mesh
+
+    def recreate_pmesh_ary(self, ary: list[np.ndarray]):
+        # If source == dest mmesh, return the same array
+        if self.load_relocator.mm.get_mmesh(self.dest_mmesh) == self.load_relocator.mm.get_mmesh(self.src_mmesh):
+            print(f"Source and destination meshes are the same. Returning the same array")
+            return ary
+
+        print(f"Recreating array for {self.dest_mmesh} from {self.src_mmesh}")
+
+        # Copy the solution to the plugin mesh
+        return list(self.load_relocator.reloc(self.src_mmesh, self.dest_mmesh,
+                {m:s for m,s in zip(self.load_relocator.mm.etypes, 
+                                    ary)}, edim=2).values()
+                           )
 
 class SurfaceMixin:
     def _surf_region(self, intg):

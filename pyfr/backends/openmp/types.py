@@ -2,6 +2,8 @@ from collections import defaultdict
 from ctypes import c_int
 from functools import cached_property
 
+import numpy as np
+
 import pyfr.backends.base as base
 from pyfr.backends.openmp.provider import OpenMPBlockKernelArgs, OpenMPKRunArgs
 from pyfr.ctypesutil import make_array
@@ -35,9 +37,13 @@ class OpenMPMatrixBase(base.MatrixBase):
 
 
 class OpenMPMatrix(OpenMPMatrixBase, base.Matrix):
-    @cached_property
+    @property
     def hdata(self):
-        return self.data
+        return np.ascontiguousarray(self._get())
+
+    @hdata.setter
+    def hdata(self, y):
+        self.data = self._pack(y)
 
 
 class OpenMPMatrixSlice(base.MatrixSlice):
