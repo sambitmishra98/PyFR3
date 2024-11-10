@@ -66,16 +66,9 @@ class BaseIntegrator:
         self.tol = self.cfg.getfloat('mesh', 'imbalance-tolerence', 0.01)
         low_elem = self.cfg.getint('mesh', 'low-elements-limit', 1024)
         self.K_p = self.cfg.getfloat('mesh', 'diffusion-K_p', 1)
-        self.K_i = self.cfg.getfloat('mesh', 'diffusion-K_i', 1)
-        self.K_d = self.cfg.getfloat('mesh', 'diffusion-K_d', 1)
-        self.K_win = self.cfg.getint('mesh', 'diffusion-K_window', 2)
-        self.load_relocator = LoadRelocator(mesh, 
-                                            tol=self.tol,
-                                            low_elem = low_elem,
-                                            K_p=self.K_p, 
-                                            K_i=self.K_i,
-                                            K_d=self.K_d, 
-                                            K_win=self.K_win)
+        self.load_relocator = LoadRelocator(mesh, tol=self.tol, 
+                                            low_elem = low_elem, K_p=self.K_p, 
+                                           )
 
         self.lbdiff = 0.
         self.pprev  = 0.

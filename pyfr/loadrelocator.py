@@ -753,11 +753,7 @@ class LoadRelocator():
     # Initialise as an empty list
     etypes = []
 
-    def __init__(self, base_mesh: _Mesh, tol, low_elem,
-                 K_p=1, 
-                 K_i=0, 
-                 K_d=0, 
-                 K_win=2):
+    def __init__(self, base_mesh: _Mesh, tol, low_elem, K_p=1):
 
         self._logger = initialise_logger(__name__, LOG_LEVEL)
 
@@ -770,7 +766,6 @@ class LoadRelocator():
         self.low_elem = low_elem
 
         self.p = K_p
-        self.K_win = K_win
 
         self.new_ranks = list(range(mpi.COMM_WORLD.size))
 
@@ -884,8 +879,12 @@ class LoadRelocator():
                 raise ValueError(f"Total number of elements across all ranks is not equal to gnelems.")
 
         ii = 0
-        while (comm.allreduce(np.abs(nelems_diff[rank]), op=mpi.SUM) > self.tol*sum(t_nelems_byrank) 
-               or len([n for n in nelems_diff if n != 0]) != len(self.new_ranks)):
+        while (
+                (comm.allreduce(np.abs(nelems_diff[rank]), op=mpi.SUM) > self.tol*sum(t_nelems_byrank) 
+                   or len([n for n in nelems_diff if n != 0]) != len(self.new_ranks)
+                   )
+                   and not np.all([n for n in nelems_diff if n != 0])
+               ):
 
             ii += 1
             self.curr_nelems = comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems)
