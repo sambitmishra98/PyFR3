@@ -163,7 +163,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
         # Compute the gradients
         if self._gradpinfo:
             if hasattr(self, 'load_relocator'):
-                grad_soln = self.recreate_pmesh_ary(intg.grad_soln)
+                grad_soln = self.recreate_pmesh_ary(intg, intg.grad_soln)
             else:
                 grad_soln = intg.grad_soln
 
@@ -171,7 +171,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
         for idx, etype, rgn in self._ele_regions:
 
             if hasattr(self, 'load_relocator'):
-                intg_soln = self.recreate_pmesh_ary(intg.soln)
+                intg_soln = self.recreate_pmesh_ary(intg, intg.soln)
             else:
                 intg_soln = intg.soln
 
@@ -354,10 +354,11 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
         if not self._started:
 
             if hasattr(self, 'load_relocator'):
-                # Connect plugin_new <-- compute_new
-                intg.load_relocator.mm.connect_mmeshes('plugins_new', 
-                                                       'compute_new',
-                                                       overwrite=True)
+                if self.cfg.get(self.cfgsect, 'partitioning') != 'compute':
+                    # Connect to plugin_new or base from compute_new
+                    intg.load_relocator.mm.connect_mmeshes(self.dest_mmesh, 
+                                                           self.src_mmesh,
+                                                           overwrite=True)
 
             self._init_accumex(intg)
             self._started = True
@@ -368,10 +369,11 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, Base
 
         if dowrite or doaccum:
             if hasattr(self, 'load_relocator'):
-                # Connect plugin_new <-- compute_new
-                intg.load_relocator.mm.connect_mmeshes('plugins_new', 
-                                                       'compute_new',
-                                                       overwrite=True)
+                if self.cfg.get(self.cfgsect, 'partitioning') != 'compute':
+                    # Connect to plugin_new or base from compute_new
+                    intg.load_relocator.mm.connect_mmeshes(self.dest_mmesh, 
+                                                           self.src_mmesh,
+                                                           overwrite=True)
 
             # Evaluate the time averaging expressions
             currex = self._eval_acc_exprs(intg)

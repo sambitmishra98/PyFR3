@@ -94,13 +94,13 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin, BaseSolnPlugi
 
         if self._write_grads:
             if hasattr(self, 'load_relocator'):
-                soln = self.recreate_pmesh_ary(intg.soln)
-                grad_soln = self.recreate_pmesh_ary(intg.grad_soln)
+                soln = self.recreate_pmesh_ary(intg, intg.soln)
+                grad_soln = self.recreate_pmesh_ary(intg, intg.grad_soln)
             else:
                 soln, grad_soln = intg.soln, intg.grad_soln
         else:
             if hasattr(self, 'load_relocator'):
-                soln = self.recreate_pmesh_ary(intg.soln)
+                soln = self.recreate_pmesh_ary(intg, intg.soln)
                 grad_soln = None
             else:
                 soln, grad_soln = intg.soln, None

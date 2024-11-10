@@ -223,41 +223,61 @@ class LoadBalanceMixin:
     def __init__(self, intg, *args, **kwargs):
         super().__init__(intg, *args, **kwargs)
 
-        if self.cfg.getbool(self.cfgsect, 'equipartitioning', False):
+        if self.cfg.get(self.cfgsect, 'partitioning') =='balanced':
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'plugins'
+            self.dest_mmesh = self.pmmesh_name+'_new'
+
             self.mesh = self.equipartition_mesh(intg)
+
+        elif self.cfg.get(self.cfgsect, 'partitioning') == 'compute':
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'compute'
+            self.dest_mmesh = self.pmmesh_name+'_new'
+
+            self.mesh = intg.system.mesh
+
+        elif self.cfg.get(self.cfgsect, 'partitioning') == 'base':
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'base'
+            self.dest_mmesh = 'base'
+
+            self.mesh = self.base_mesh(intg)
         else:
             self.mesh = intg.system.mesh
+
+    def base_mesh(self, intg):
+            if not hasattr(intg, 'load_relocator'):
+                raise ValueError("Using base mesh without load_relocator "
+                                 "doesn't make sense.")
+
+            return intg.load_relocator.mm.get_mmesh('base').to_mesh()
 
     @memoize
     def equipartition_mesh(self, intg):
             if not hasattr(intg, 'load_relocator'):
                 raise ValueError("Cannot equi-partition without load_relocator.")
 
-            self.src_mmesh = 'compute_new'
-            self.pmmesh_name = 'plugins'
-            self.dest_mmesh = self.pmmesh_name+'_new'
-            self.load_relocator: LoadRelocator = intg.load_relocator
-            self.load_relocator.mm.copy_mmesh(self.src_mmesh, self.pmmesh_name)
-            self.load_relocator.mm.copy_mmesh(self.pmmesh_name, self.pmmesh_name+"_new")
+            intg.load_relocator.mm.copy_mmesh(self.src_mmesh, self.pmmesh_name)
+            intg.load_relocator.mm.copy_mmesh(self.pmmesh_name, self.pmmesh_name+"_new")
 
             # Ensure all ranks are used for equi-partitioning mesh
-            self.load_relocator.mm.update_mmesh_comm(self.pmmesh_name, 
+            intg.load_relocator.mm.update_mmesh_comm(self.pmmesh_name, 
                                                     comm=mpi.COMM_WORLD, 
                                                     ranks_map=list(range(mpi.COMM_WORLD.size)))
             print(f"Equi-partitioning mesh {self.pmmesh_name}")
-            return self.load_relocator.equipartition_diffuse(self.pmmesh_name)[0]
+            return intg.load_relocator.equipartition_diffuse(self.pmmesh_name)[0]
 
-    def recreate_pmesh_ary(self, ary: list[np.ndarray]):
-        # If source == dest mmesh, return the same array
-        if self.load_relocator.mm.get_mmesh(self.dest_mmesh) == self.load_relocator.mm.get_mmesh(self.src_mmesh):
-            print(f"Source and destination meshes are the same. Returning the same array")
+    def recreate_pmesh_ary(self, intg, ary: list[np.ndarray]):
+        if self.dest_mmesh == self.src_mmesh:
+            print(f"Src-mesh same as dest mesh, returning ary as is.")
             return ary
 
-        print(f"Recreating array for {self.dest_mmesh} from {self.src_mmesh}")
+        print(f"Array relocation to {self.dest_mmesh} from {self.src_mmesh}")
 
         # Copy the solution to the plugin mesh
-        return list(self.load_relocator.reloc(self.src_mmesh, self.dest_mmesh,
-                {m:s for m,s in zip(self.load_relocator.mm.etypes, 
+        return list(intg.load_relocator.reloc(self.src_mmesh, self.dest_mmesh,
+                {m:s for m,s in zip(intg.load_relocator.mm.etypes, 
                                     ary)}, edim=2).values()
                            )
 
