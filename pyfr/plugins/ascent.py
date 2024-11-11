@@ -9,8 +9,8 @@ from pyfr.ctypesutil import LibWrapper
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root, init_mpi
 from pyfr.nputil import npeval
-from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, cli_external,
-                               region_data)
+from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, LoadBalanceMixin, 
+                               cli_external, region_data)
 from pyfr.readers.native import NativeReader
 from pyfr.shapes import BaseShape
 from pyfr.util import file_path_gen, subclass_where
@@ -118,8 +118,9 @@ class AscentWrappers(LibWrapper):
 
 
 class _IntegratorAdapter:
-    def __init__(self, intg, cfgsect):
+    def __init__(self, intg, mesh, cfgsect):
         self.intg = intg
+        self.mesh = mesh
         self.acfg = self.scfg = intg.cfg
         self.cfgsect = cfgsect
 
@@ -148,7 +149,7 @@ class _IntegratorAdapter:
 
     @property
     def region_data(self):
-        return region_data(self.acfg, self.cfgsect, self.intg.system.mesh)
+        return region_data(self.acfg, self.cfgsect, self.mesh)
 
     def soln_op_vpts(self, ename, divisor):
         eles = self.intg.system.ele_map[ename]
@@ -532,7 +533,7 @@ class _AscentRenderer:
         comm.barrier()
 
 
-class AscentPlugin(BaseSolnPlugin):
+class AscentPlugin(LoadBalanceMixin, BaseSolnPlugin):
     name = 'ascent'
     systems = ['*']
     formulations = ['dual', 'std']
@@ -542,12 +543,14 @@ class AscentPlugin(BaseSolnPlugin):
         super().__init__(intg, cfgsect, suffix)
 
         self.nsteps = self.cfg.getint(cfgsect, 'nsteps')
-        self._renderer = _AscentRenderer(_IntegratorAdapter(intg, cfgsect),
+        self._renderer = _AscentRenderer(_IntegratorAdapter(intg, self.mesh, 
+                                                            cfgsect),
                                          intg.isrestart)
 
     def __call__(self, intg):
         if intg.nacptsteps % self.nsteps == 0:
-            self._renderer.render(_IntegratorAdapter(intg, self.cfgsect))
+            self._renderer.render(_IntegratorAdapter(intg, self.mesh, 
+                                                     self.cfgsect))
 
 
 class AscentCLIPlugin(BaseCLIPlugin):

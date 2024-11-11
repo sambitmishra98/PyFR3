@@ -3,11 +3,11 @@ from collections import defaultdict
 import numpy as np
 
 from pyfr.mpiutil import get_comm_rank_root, mpi
-from pyfr.plugins.base import (BaseSolnPlugin, DatasetAppender, SurfaceMixin,
+from pyfr.plugins.base import (BaseSolnPlugin, DatasetAppender, LoadBalanceMixin, SurfaceMixin,
                                init_csv, open_hdf5_a)
 
 
-class FluidForcePlugin(SurfaceMixin, BaseSolnPlugin):
+class FluidForcePlugin(SurfaceMixin, LoadBalanceMixin, BaseSolnPlugin):
     name = 'fluidforce'
     systems = ['ac-euler', 'ac-navier-stokes', 'euler', 'navier-stokes']
     formulations = ['dual', 'std']
@@ -45,7 +45,7 @@ class FluidForcePlugin(SurfaceMixin, BaseSolnPlugin):
                 raise ValueError(f'morigin must have {self.ndims} components')
 
         # Get the mesh and elements
-        mesh, elemap = intg.system.mesh, intg.system.ele_map
+        mesh, elemap = self.mesh, intg.system.ele_map
 
         # See which ranks have the boundary
         bcranks = comm.gather(suffix in mesh.bcon, root=root)

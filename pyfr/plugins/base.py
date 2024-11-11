@@ -220,7 +220,7 @@ class RegionMixin:
         super().__init__(intg, *args, **kwargs)
 
         # Parse the region
-        ridxs = region_data(self.cfg, self.cfgsect, intg.system.mesh)
+        ridxs = region_data(self.cfg, self.cfgsect, self.mesh)
 
         # Generate the appropriate metadata arrays
         self._ele_regions, self._ele_region_data = [], {}
@@ -229,14 +229,28 @@ class RegionMixin:
             self._ele_regions.append((doff, etype, eidxs))
 
             # Obtain the global element numbers
-            geidxs = intg.system.mesh.eidxs[etype][eidxs]
+            geidxs = self.mesh.eidxs[etype][eidxs]
             self._ele_region_data[etype] = geidxs
 
+
+    def redo_ele_region_data(self, intg):
+        # Parse the region
+        ridxs = region_data(self.cfg, self.cfgsect, self.mesh)
+
+        # Generate the appropriate metadata arrays
+        self._ele_regions, self._ele_region_data = [], {}
+        for etype, eidxs in ridxs.items():
+            doff = intg.system.ele_types.index(etype)
+            self._ele_regions.append((doff, etype, eidxs))
+
+            # Obtain the global element numbers
+            geidxs = self.mesh.eidxs[etype][eidxs]
+            self._ele_region_data[etype] = geidxs
 
 class SurfaceMixin:
     def _surf_region(self, intg):
         # Parse the region
-        sidxs = surface_data(intg.cfg, self.cfgsect, intg.system.mesh)
+        sidxs = surface_data(intg.cfg, self.cfgsect, self.mesh)
 
         # Generate the appropriate metadata arrays
         ele_surface, ele_surface_data = [], {}
@@ -267,6 +281,78 @@ class SurfaceMixin:
         pts = np.atleast_2d(q.pts.T)
         return np.vstack(np.broadcast_arrays(*proj(*pts))).T, q.wts
 
+
+class LoadBalanceMixin:
+    def __init__(self, intg, *args, **kwargs):
+        super().__init__(intg, *args, **kwargs)
+
+        self.partition = self.cfg.get(self.cfgsect, 'partition', None)
+
+        self._intg = intg
+
+        if self.partition =='balanced':
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'plugins'
+            self.dest_mmesh = self.pmmesh_name+'_new'
+
+        elif self.partition == 'compute':
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'compute'
+            self.dest_mmesh = self.pmmesh_name+'_new'
+
+        elif self.partition == 'base':
+            self.src_mmesh = 'compute_new'
+            self.pmmesh_name = 'base'
+            self.dest_mmesh = 'base'
+
+    @property
+    def mesh(self):
+        if self.partition == 'balanced':
+            return self.equipartition_mesh(self._intg)
+        elif self.partition == 'compute':
+            return self.compute_mesh(self._intg)
+        elif self.partition == 'base':
+            return self.base_mesh(self._intg)
+        else:
+            return self._intg.system.mesh
+
+    def base_mesh(self, intg):
+            if not hasattr(intg, 'load_relocator'):
+                raise ValueError("Using base mesh without load_relocator "
+                                 "doesn't make sense.")
+
+            return intg.load_relocator.mm.get_mmesh('base').to_mesh()
+
+    def compute_mesh(self, intg):
+            if not hasattr(intg, 'load_relocator'):
+                raise ValueError("Using compute mesh without load_relocator "
+                                 "doesn't make sense.")
+
+            return intg.load_relocator.mm.get_mmesh('compute').to_mesh()
+
+    @memoize
+    def equipartition_mesh(self, intg):
+            if not hasattr(intg, 'load_relocator'):
+                raise ValueError("Cannot equi-partition without load_relocator.")
+
+            intg.load_relocator.mm.copy_mmesh(self.src_mmesh, self.pmmesh_name)
+            intg.load_relocator.mm.copy_mmesh(self.pmmesh_name, self.pmmesh_name+"_new")
+
+            # Ensure all ranks are used for equi-partitioning mesh
+            intg.load_relocator.mm.update_mmesh_comm(self.pmmesh_name, 
+                                                    comm=mpi.COMM_WORLD, 
+                                                    ranks_map=list(range(mpi.COMM_WORLD.size)))
+            print(f"Equi-partitioning mesh {self.pmmesh_name}")
+            return intg.load_relocator.equipartition_diffuse(self.pmmesh_name)[0]
+
+    def recreate_pmesh_ary(self, intg, ary, src, dest):
+        if src == dest:
+            return ary
+
+        # Copy the solution to the plugin mesh
+        return list(intg.load_relocator.reloc(src, dest,
+                {m:s for m,s in zip(intg.load_relocator.mm.etypes, 
+                                    ary)}, edim=2).values())
 
 class DatasetAppender:
     def __init__(self, dset, flush=None, swmr=True):

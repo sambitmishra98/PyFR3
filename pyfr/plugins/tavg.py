@@ -6,8 +6,8 @@ import numpy as np
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.nputil import npeval
-from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, PostactionMixin,
-                               RegionMixin, cli_external)
+from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, LoadBalanceMixin, 
+                               PostactionMixin, RegionMixin, cli_external)
 from pyfr.progress import NullProgressBar
 from pyfr.writers.native import NativeWriter
 from pyfr.util import first, merge_intervals
@@ -32,7 +32,8 @@ class TavgMixin:
         return fx, dfx
 
 
-class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
+class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, LoadBalanceMixin, 
+                 BaseSolnPlugin):
     name = 'tavg'
     systems = ['*']
     formulations = ['dual', 'std']
@@ -60,7 +61,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
             raise ValueError('Invalid standard deviation mode')
 
         # Expressions pre-processing
-        nfields = self._prepare_exprs()
+        self._nvars = self._prepare_exprs()
 
         # Output data type
         fpdtype = self.cfg.get(cfgsect, 'precision', 'single')
@@ -76,10 +77,10 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
         basename = self.cfg.get(cfgsect, 'basename')
 
         # Get the element map and region data
-        emap, erdata = intg.system.ele_map, self._ele_region_data
+        self._emap, erdata = intg.system.ele_map, self._ele_region_data
 
         # Figure out the shape of each element type in our region
-        ershapes = {etype: (nfields, emap[etype].nupts) for etype in erdata}
+        ershapes = {etype: (self._nvars, self._emap[etype].nupts) for etype in erdata}
 
         # Construct the file writer
         self._writer = NativeWriter.from_integrator(intg, basedir, basename,
@@ -109,9 +110,9 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
         # Get the total number of solution points in the region
         ergns = self._ele_regions
         if self.cfg.get(cfgsect, 'region') == '*':
-            tpts = sum(emap[e].neles*emap[e].nupts for i, e, r in ergns)
+            tpts = sum(self._emap[e].neles*self._emap[e].nupts for i, e, r in ergns)
         else:
-            tpts = sum(len(r)*emap[e].nupts for i, e, r in ergns)
+            tpts = sum(len(r)*self._emap[e].nupts for i, e, r in ergns)
 
         # Reduce
         self.tpts = comm.reduce(tpts, op=mpi.SUM, root=root)
@@ -165,7 +166,10 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
 
         # Compute the gradients
         if self._gradpinfo:
-            grad_soln = intg.grad_soln
+            if hasattr(intg, 'load_relocator'):
+                grad_soln = self.recreate_pmesh_ary(intg, intg.grad_soln,
+                                                    self.src_mmesh,
+                                                    self.dest_mmesh)
 
         # Iterate over each element type in the simulation
         for idx, etype, rgn in self._ele_regions:
@@ -175,7 +179,6 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
                                                     self.dest_mmesh)
             else:
                 sol = intg.soln
-
 
             soln = sol[idx][..., rgn].swapaxes(0, 1)
 
@@ -353,6 +356,26 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
 
         # If necessary, run the start-up routines
         if not self._started:
+            if hasattr(intg, 'load_relocator'):
+                if self.partition == 'balanced':
+                    intg.load_relocator.mm.connect_mmeshes('plugins_new', 
+                                                        'compute_new',
+                                                        overwrite=True)
+                elif self.partition == 'base':
+                    intg.load_relocator.mm.connect_mmeshes('base', 
+                                                        'compute_new',
+                                                        overwrite=True)
+                elif self.partition == 'compute':
+                    # Re-tally ecounts for new compute-mesh
+                    self._writer._ecounts = {etype: len(
+                            self.mesh.eidxs.get(etype, [])
+                            ) for etype in self.mesh.etypes}
+
+                    self.redo_ele_region_data(intg)
+                    ershapes = {etype: (self._nvars, self._emap[etype].nupts) 
+                                        for etype in self._ele_region_data}
+                    self._writer.set_shapes_eidxs(ershapes, self._ele_region_data)
+
             self._init_accumex(intg)
             self._started = True
 
@@ -361,6 +384,36 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
         doaccum = intg.nacptsteps % self.nsteps == 0
 
         if dowrite or doaccum:
+            if hasattr(intg, 'load_relocator'):
+                if self.partition == 'balanced':
+                    intg.load_relocator.mm.connect_mmeshes('plugins_new', 
+                                                        'compute_new',
+                                                        overwrite=True)
+                elif self.partition == 'base':
+                    intg.load_relocator.mm.connect_mmeshes('base', 
+                                                        'compute_new',
+                                                        overwrite=True)
+                elif self.partition == 'compute':
+                    intg.load_relocator.mm.connect_mmeshes('compute_new', 
+                                                        'compute',
+                                                        overwrite=True)
+                    # Re-tally ecounts for new compute-mesh
+                    self._writer._ecounts = {etype: len(
+                            self.mesh.eidxs.get(etype, [])
+                            ) for etype in self.mesh.etypes}
+
+                    self.redo_ele_region_data(intg)
+                    ershapes = {etype: (self._nvars, self._emap[etype].nupts) 
+                                        for etype in self._ele_region_data}
+                    self._writer.set_shapes_eidxs(ershapes, self._ele_region_data)
+
+                self.prevex = self.recreate_pmesh_ary(intg, self.prevex,
+                                                    self.pmmesh_name,
+                                                    self.dest_mmesh)
+
+                self.accex = [np.zeros_like(p, dtype=np.float64) for p in self.prevex]
+                self.vaccex = [np.zeros_like(a) for a in self.accex]
+
             # Evaluate the time averaging expressions
             currex = self._eval_acc_exprs(intg)
 
@@ -377,7 +430,7 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
 
                 # Prepare a callback to kick off any postactions
                 callback = lambda fname, t=intg.tcurr: self._invoke_postaction(
-                    intg, mesh=intg.system.mesh.fname, soln=fname, t=t
+                    intg, mesh=self.mesh.fname, soln=fname, t=t
                 )
 
                 # Write out the file

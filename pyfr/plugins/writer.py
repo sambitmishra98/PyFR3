@@ -2,12 +2,14 @@ import numpy as np
 
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import get_comm_rank_root
-from pyfr.plugins.base import BaseSolnPlugin, PostactionMixin, RegionMixin
+from pyfr.plugins.base import (BaseSolnPlugin, LoadBalanceMixin,
+                               PostactionMixin, RegionMixin)
 from pyfr.writers.native import NativeWriter
 from pyfr.util import first
 
 
-class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
+class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin,
+                   BaseSolnPlugin):
     name = 'writer'
     systems = ['*']
     formulations = ['dual', 'std']
@@ -21,14 +23,14 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         basename = self.cfg.get(cfgsect, 'basename')
 
         # Get the element map and region data
-        emap, erdata = intg.system.ele_map, self._ele_region_data
+        self._emap, erdata = intg.system.ele_map, self._ele_region_data
 
         # Decide if gradients should be written or not
         self._write_grads = self.cfg.getbool(cfgsect, 'write-gradients', False)
 
         # Figure out the shape of each element type in our region
-        nvars = self.nvars + self._write_grads*(self.nvars*self.ndims)
-        ershapes = {etype: (nvars, emap[etype].nupts) for etype in erdata}
+        self._nvars = self.nvars + self._write_grads*(self.nvars*self.ndims)
+        ershapes = {etype: (self._nvars, self._emap[etype].nupts) for etype in erdata}
 
         # Construct the solution writer
         self._writer = NativeWriter.from_integrator(intg, basedir, basename,
@@ -91,9 +93,23 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         data = {}
 
         if self._write_grads:
-            soln, grad_soln = intg.soln, intg.grad_soln
+            if hasattr(intg, 'load_relocator'):
+                soln = self.recreate_pmesh_ary(intg, intg.soln,
+                                                    self.src_mmesh,
+                                                    self.dest_mmesh)
+                grad_soln = self.recreate_pmesh_ary(intg, intg.grad_soln,
+                                                    self.src_mmesh,
+                                                    self.dest_mmesh)
+            else:
+                soln, grad_soln = intg.soln, intg.grad_soln
         else:
-            soln, grad_soln = intg.soln, None
+            if hasattr(intg, 'load_relocator'):
+                soln = self.recreate_pmesh_ary(intg, intg.soln,
+                                                    self.src_mmesh,
+                                                    self.dest_mmesh)
+                grad_soln = None
+            else:
+                soln, grad_soln = intg.soln, None
 
         for idx, etype, rgn in self._ele_regions:
             d = soln[idx][..., rgn].T.astype(self.fpdtype)
@@ -114,13 +130,33 @@ class WriterPlugin(PostactionMixin, RegionMixin, BaseSolnPlugin):
         if intg.tcurr - self.tout_last < self.dt_out - self.tol:
             return
 
+        if hasattr(intg, 'load_relocator'):
+            if self.partition == 'balanced':
+                intg.load_relocator.mm.connect_mmeshes('plugins_new', 
+                                                       'compute_new',
+                                                       overwrite=True)
+            elif self.partition == 'base':
+                intg.load_relocator.mm.connect_mmeshes('base', 
+                                                       'compute_new',
+                                                       overwrite=True)
+            elif self.partition == 'compute':
+                # Re-tally ecounts for new compute-mesh
+                self._writer._ecounts = {etype: len(
+                        self.mesh.eidxs.get(etype, [])
+                        ) for etype in self.mesh.etypes}
+
+                self.redo_ele_region_data(intg)
+                ershapes = {etype: (self._nvars, self._emap[etype].nupts) 
+                                    for etype in self._ele_region_data}
+                self._writer.set_shapes_eidxs(ershapes, self._ele_region_data)
+
         # Prepare the data and metadata
         data = self._prepare_data(intg)
         metadata = self._prepare_metadata(intg)
 
         # Prepare a callback to kick off any postactions
         callback = lambda fname, t=intg.tcurr: self._invoke_postaction(
-            intg=intg, mesh=intg.system.mesh.fname, soln=fname, t=t
+            intg=intg, mesh=self.mesh.fname, soln=fname, t=t
         )
 
         # Write out the file

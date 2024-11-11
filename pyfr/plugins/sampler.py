@@ -8,8 +8,9 @@ import h5py
 import numpy as np
 
 from pyfr.mpiutil import get_comm_rank_root, init_mpi
-from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, DatasetAppender,
-                               cli_external, init_csv, open_hdf5_a)
+from pyfr.plugins.base import (BaseCLIPlugin, BaseSolnPlugin, 
+                               LoadBalanceMixin, DatasetAppender, cli_external, 
+                               init_csv, open_hdf5_a)
 from pyfr.points import PointLocator, PointSampler
 from pyfr.readers.native import NativeReader
 from pyfr.util import first, subclass_where
@@ -57,7 +58,7 @@ def _process_con_to_pri(elementscls, ndims, cfg):
     return process
 
 
-class SamplerPlugin(BaseSolnPlugin):
+class SamplerPlugin(LoadBalanceMixin, BaseSolnPlugin):
     name = 'sampler'
     systems = ['*']
     formulations = ['dual', 'std']
@@ -91,26 +92,29 @@ class SamplerPlugin(BaseSolnPlugin):
                                               False)
 
         # Get the sample points
-        spts = self.cfg.get(self.cfgsect, 'samp-pts')
-        if ',' in spts:
-            spts = self.cfg.getliteral(self.cfgsect, 'samp-pts')
+        self._spts = self.cfg.get(self.cfgsect, 'samp-pts')
+        if ',' in self._spts:
+            self._spts = self.cfg.getliteral(self.cfgsect, 'samp-pts')
 
         # Determine the number of variables per sample
         self.nsvars = (1 + self.ndims*self._sample_grads)*self.nvars
 
         # Construct and configure the point sampler
-        self.psampler = PointSampler(intg.system.mesh, spts)
+        self.psampler = PointSampler(self.mesh, self._spts)
         self.psampler.configure_with_intg_nvars(intg, self.nsvars)
 
         # Have the root rank open the output file
         if rank == root:
-            match self.cfg.get(cfgsect, 'file-format', 'csv'):
+            self._ff = self.cfg.get(cfgsect, 'file-format', 'csv')
+            match self._ff:
                 case 'csv':
-                    self._init_csv(intg)
+                    self._init_file_format = self._init_csv
                 case 'hdf5':
-                    self._init_hdf5(intg)
+                    self._init_file_format = self._init_hdf5
                 case _:
                     raise ValueError('Invalid file format')
+
+            self._init_file_format(intg)
 
     def _init_csv(self, intg):
         self.outf = init_csv(self.cfg, self.cfgsect, self._header(intg))
@@ -177,8 +181,25 @@ class SamplerPlugin(BaseSolnPlugin):
         if intg.nacptsteps % self.nsteps:
             return
 
+        if hasattr(intg, 'load_relocator'):
+            # Recreate psampler with new mesh
+            self.psampler = PointSampler(self.mesh, self._spts)
+            self.psampler.configure_with_intg_nvars(intg, self.nsvars)
+
+            intg.load_relocator.mm.connect_mmeshes('compute', 'compute_new',
+                                                   overwrite=True)
+
+            soln = self.recreate_pmesh_ary(intg, intg.soln, "compute_new",
+                                                            "compute")
+
+            # Have the root rank open the output file
+            comm, rank, root = get_comm_rank_root()
+
+            if rank == root:
+                self._init_file_format(intg)
+
         # Fetch the solution
-        soln = list(intg.soln)
+        soln = list(soln)
 
         # If requested also fetch solution gradients
         if self._sample_grads:
