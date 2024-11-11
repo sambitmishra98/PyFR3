@@ -10,6 +10,8 @@ from pyfr.cache import memoize
 from pyfr.mpiutil import get_comm_rank_root, mpi, scal_coll
 from pyfr.plugins import get_plugin
 
+from pyfr.loadrelocator import LoadRelocator
+
 
 def _common_plugin_prop(attr):
     def wrapfn(fn):
@@ -47,6 +49,9 @@ class BaseIntegrator:
 
         # List of target times to advance to
         self.tlist = deque([self.tend])
+        
+        # List of steps with plugin pollution
+        self.slist = []
 
         # Accepted and rejected step counters
         self.nacptsteps = 0
@@ -59,6 +64,21 @@ class BaseIntegrator:
 
         # Extract the UUID of the mesh (to be saved with solutions)
         self.mesh_uuid = mesh.uuid
+
+        if cfg.getbool('mesh', 'enable-relocator', False):
+            comm, rank, root = get_comm_rank_root()
+            self.observe_only = cfg.getbool('mesh', 'observe-only', True)
+
+            if comm.size == 1 and not self.observe_only:
+                raise ValueError('Relocation is only supported in parallel')
+
+            self.tol = self.cfg.getfloat('mesh', 'imbalance-tol', 0.1)
+
+            if not self.observe_only:
+                self.load_relocator = LoadRelocator(mesh)
+
+        self.lbdiff = 0.
+        self.pprev  = 0.
 
         self._invalidate_caches()
 
@@ -187,6 +207,9 @@ class BaseIntegrator:
         for t in it.chain(ta, tb):
             if not tlist or t - tlist[-1] > self.dtmin:
                 tlist.append(t)
+
+    def call_plugin_nsteps(self, nsteps):
+        self.slist.append(nsteps)
 
     def _invalidate_caches(self):
         self._curr_soln = None

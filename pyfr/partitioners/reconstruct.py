@@ -49,3 +49,47 @@ def reconstruct_partitioning(mesh, soln, progress=NullProgressSequence):
                                                        con, vparts)
 
     return pinfo
+
+def reconstruct_by_diffusion(mesh, name, part_wts,
+                             progress=NullProgressSequence):
+
+    comm, rank, root = get_comm_rank_root('compute')
+
+    load_relocator = LoadRelocator(mesh, bmmesh='existing', 
+                                   cmmesh='diffuse', cnmmesh='diffuse_new')
+
+    with progress.start('Initialise relocator'):
+        load_relocator.move_priority = list(range(comm.size))
+
+        load_relocator.curr_nelems = comm.allgather(
+            load_relocator.mm.get_mmesh('diffuse').nelems)
+        t_nelems_byrank = [load_relocator.mm.gnelems*part_wt/
+                            sum(part_wts) for part_wt in part_wts]
+
+    with progress.start('Initialise empty ranks'):
+        mesh = load_relocator.initialise_empty_rank('diffuse')
+
+    with progress.start('Start diffusion'):
+        mesh = load_relocator.diffuse_computation('diffuse', t_nelems_byrank,
+                                                  cli=True)[0]
+
+    # Group partition number and element idx from mesh of each rank
+    sparts = {etype: [] for etype in mesh.etypes}
+    eidxs = load_relocator.mm.get_mmesh('diffuse_new').eidxs
+    for etype, idxs in eidxs.items():
+        sparts[etype] = (idxs, rank*np.ones(len(idxs), dtype=np.int32))
+
+    # Gather sparts data from all ranks, by element type
+    sparts = {k: comm.gather(v, root=root) for k, v in sparts.items()}
+    if rank == root:
+        print(f'Mesh {name} created with partition weights: {part_wts}\n')
+        for etype, sp in sparts.items():
+            idxs, parts = map(np.concatenate, zip(*sp))
+
+            sparts[etype] = parts[np.argsort(idxs)] 
+
+        vparts = np.concatenate([p for _, p in sorted(sparts.items())])
+    else:
+        vparts = None
+
+    return vparts

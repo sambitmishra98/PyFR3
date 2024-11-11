@@ -100,6 +100,9 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
         # Register our output times with the integrator
         intg.call_plugin_dt(self.dtout)
 
+        # Register nsteps with the integrator
+        intg.call_plugin_nsteps(self.nsteps)
+
         # Mark ourselves as not currently averaging
         self._started = False
 
@@ -166,7 +169,15 @@ class TavgPlugin(PostactionMixin, RegionMixin, TavgMixin, BaseSolnPlugin):
 
         # Iterate over each element type in the simulation
         for idx, etype, rgn in self._ele_regions:
-            soln = intg.soln[idx][..., rgn].swapaxes(0, 1)
+            if hasattr(intg, 'load_relocator'):
+                sol = self.recreate_pmesh_ary(intg, intg.soln,
+                                                    self.src_mmesh,
+                                                    self.dest_mmesh)
+            else:
+                sol = intg.soln
+
+
+            soln = sol[idx][..., rgn].swapaxes(0, 1)
 
             # Convert from conservative to primitive variables
             psolns = self.elementscls.con_to_pri(soln, self.cfg)

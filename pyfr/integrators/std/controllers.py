@@ -1,4 +1,6 @@
+import gc
 import math
+from time import perf_counter_ns
 
 import numpy as np
 
@@ -22,6 +24,12 @@ class BaseStdController(BaseStdIntegrator):
         # Fire off any event handlers if not restarting
         if not self.isrestart:
             self._run_plugins()
+
+        self._current_perf = 0
+
+        if self.cfg.getbool('mesh', 'enable-relocator', False):
+            self.wtimes_len = self.cfg.getint('backend', 
+                                               'collect-wait-times-len', 10000)
 
     def _accept_step(self, dt, idxcurr, err=None):
         self.tcurr += dt
@@ -63,6 +71,7 @@ class StdNoneController(BaseStdController):
         return False
 
     def advance_to(self, t):
+        comm, rank, root = get_comm_rank_root()
         if t < self.tcurr:
             raise ValueError('Advance time is in the past')
 
@@ -72,9 +81,90 @@ class StdNoneController(BaseStdController):
 
             # Take the step
             idxcurr = self.step(self.tcurr, self.dt)
+            self.optimiser.collect_data()
 
             # We are not adaptive, so accept every step
             self._accept_step(self.dt, idxcurr)
+
+            #skip_step = np.any([self.nsteps % s == 0 for s in self.slist])
+            skip_step = False
+            if not (self.tcurr in self.tlist or skip_step):
+                self.optimiser.collect_data()
+
+            if (self.tcurr in self.tlist):
+                self.optimiser.collect_statistics()
+
+            if (self.tcurr in self.tlist
+                and self.cfg.getbool('mesh', 'enable-relocator', False)):
+                comm, rank, root = get_comm_rank_root()
+
+                if not self.observe_only and self.optimiser.cost[0]>0:
+                    
+                    comm.barrier()
+                    lb_tstart = perf_counter_ns()
+
+                    # If dataset is greater than 10, then model the performance
+                    t_nelems_byrank = self.load_relocator.calc_target(
+                        'compute', self.optimiser.lost_time[0])
+
+                    mesh, iters = self.load_relocator.diffuse_computation(
+                                                            'compute', 
+                                                            t_nelems_byrank)
+                    comm.barrier()
+                    self.lb_diff = (perf_counter_ns() - lb_tstart)/1e9
+
+                    # If dataset is greater than 10, then model the performance
+                    t_nelems_byrank = self.load_relocator.calc_target(
+                        'compute', self.optimiser.lost_time)
+
+                    mesh, iters = self.load_relocator.diffuse_computation(
+                                                            'compute', 
+                                                            t_nelems_byrank)
+                    self.lb_diff = (perf_counter_ns() - lb_tstart)/1e9
+
+                    # if nelems_diff is list(zeros), don't do anything
+                    new_ranks = self.load_relocator.new_ranks
+                    if iters > 0:
+                        comm.barrier()
+                        reset_start = perf_counter_ns()
+                        # Reinitialize the system with the new mesh and solution
+                        soln = self.load_relocator.reloc(
+                            'compute', 'compute_new',  
+                            {m:s for m,s in zip(self.load_relocator.mm.etypes, 
+                                                self.soln)}, 
+                                    edim=2).values()
+
+                        if len(new_ranks) == comm.size:
+                            ranks_map = {i:i for i in range(comm.size)}
+                        else:
+                            comm, ranks_map = mpi.update_comm(new_ranks)
+
+                        self.load_relocator.mm.update_mmesh_comm('compute_new',
+                                                            comm, ranks_map)
+
+                        # Reinitialize backend with the new communicator
+                        self.backend()
+                        self.system = self._systemcls(self.backend, mesh, 
+                                                      list(soln), 
+                                                      nregs=self.nregs, 
+                                                      cfg=self.cfg)
+                        self.system.commit()
+                        self.system.preproc(self.tcurr, self._idxcurr)
+                        # Delete all memoized cache attributes
+                        for attr in dir(self):
+                            if attr.startswith('_memoize_cache@'):
+                                delattr(self, attr) 
+                        gc.collect()
+                        comm.barrier()
+                        self.reset_diff = (perf_counter_ns() - reset_start)/1e9
+                    else:
+                        self.reset_diff = 0
+                else:
+                    self.lb_diff = 0
+                    self.reset_diff = 0
+
+            if (self.tcurr in self.tlist):
+                self.optimiser.empty_stats()
 
 
 class StdPIController(BaseStdController):

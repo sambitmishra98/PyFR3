@@ -1,14 +1,12 @@
 from pyfr.cache import memoize
 from pyfr.integrators.std.base import BaseStdIntegrator
 
-
 class BaseStdStepper(BaseStdIntegrator):
     def collect_stats(self, stats):
         super().collect_stats(stats)
 
         # Total number of RHS evaluations
         stats.set('solver-time-integrator', 'nfevals', self._stepper_nfevals)
-
 
 class StdEulerStepper(BaseStdStepper):
     stepper_name = 'euler'

@@ -75,6 +75,9 @@ class SamplerPlugin(BaseSolnPlugin):
         # Output frequency
         self.nsteps = self.cfg.getint(cfgsect, 'nsteps')
 
+        # Register nsteps with the integrator
+        intg.call_plugin_nsteps(self.nsteps)
+
         # Output format
         self.fmt = self.cfg.get(cfgsect, 'format', 'primitive')
         if self.fmt == 'primitive':
