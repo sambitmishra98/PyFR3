@@ -6,8 +6,11 @@ import weakref
 
 import numpy as np
 
+comm_rank_roots = {}
 
 def init_mpi():
+    global comm_rank_roots
+
     import mpi4py.rc
     from mpi4py import MPI
 
@@ -25,6 +28,11 @@ def init_mpi():
 
     # Prevent mpi4py from calling MPI_Finalize
     mpi4py.rc.finalize = False
+
+    comm = MPI.COMM_WORLD
+    comm_rank_roots['world'] = (comm, comm.rank, 0, None)
+    comm_rank_roots['compute'] = (comm, comm.rank, 0, None)
+    comm_rank_roots['reader'] = (comm, comm.rank, 0, None)
 
     # Intercept any uncaught exceptions
     class ExceptHook:
@@ -49,8 +57,9 @@ def init_mpi():
         exc = excepthook.exception
 
         # If we are exiting normally then call MPI_Finalize
-        if (MPI.COMM_WORLD.size == 1 or exc is None or
-            isinstance(exc, (KeyboardInterrupt, SystemExit))):
+        if (comm.size == 1 or exc is None or
+            isinstance(exc, KeyboardInterrupt) or
+            (isinstance(exc, SystemExit) and exc.code == 0)):
             import gc
             gc.collect()
 
@@ -58,7 +67,7 @@ def init_mpi():
         # Otherwise forcefully abort
         else:
             sys.stderr.flush()
-            MPI.COMM_WORLD.Abort(1)
+            comm.Abort(1)
 
     # Register our exit handler
     atexit.register(onexit)
@@ -71,13 +80,19 @@ def autofree(obj):
     weakref.finalize(obj, callfree, obj.fromhandle, obj.handle)
     return obj
 
+def get_comm_rank_root(comm_name=None, include_all=False):
+    global comm_rank_roots
 
-def get_comm_rank_root():
-    from mpi4py import MPI
+    comm_rank_root = comm_rank_roots.get(comm_name, comm_rank_roots['world'])
+    if include_all:
+        return comm_rank_root
+    else:
+        return comm_rank_root[0:3]
 
-    comm = MPI.COMM_WORLD
-    return comm, comm.rank, 0
-
+def append_comm_rank_root(comm_name, comm, rank, root, rank_mapping):
+    global comm_rank_roots
+    
+    comm_rank_roots[comm_name] = (comm, rank, root, rank_mapping)
 
 def get_local_rank():
     envs = [
@@ -317,6 +332,37 @@ class SparseScatterer(AlltoallMixin):
 
         return rvals
 
+def initialise_new_comm(comm_name, new_ranks):
+    from mpi4py import MPI
+
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    
+    # Decide which ranks to keep
+    if rank not in new_ranks:
+        color = MPI.UNDEFINED
+        key = MPI.UNDEFINED
+    else:
+        color = 0
+        key = new_ranks.index(rank)
+
+    new_comm = comm.Split(color, key=key)
+    if new_comm != MPI.COMM_NULL:
+        new_rank = new_comm.Get_rank()
+        new_root = 0
+    else:
+        # Do not exit, just return None
+        new_rank = None
+        new_root = None
+
+    # Create a mapping from old ranks to new ranks
+    rank_mapping = {
+        old_rank: new_ranks.index(old_rank) if old_rank in new_ranks else None
+        for old_rank in range(MPI.COMM_WORLD.Get_size())
+    }
+
+    append_comm_rank_root(comm_name, new_comm, new_rank, new_root, rank_mapping)
+
 
 class Sorter(AlltoallMixin):
     def __init__(self, comm, keys, dtype=int):
@@ -405,6 +451,5 @@ class _MPI:
         from mpi4py import MPI
 
         return getattr(MPI, attr)
-
 
 mpi = _MPI()
