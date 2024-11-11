@@ -34,6 +34,7 @@ class _Mesh:
     con_p: dict = field(default_factory=dict)
     bcon: dict = field(default_factory=dict)
 
+    eles: dict = field(default_factory=dict)
 
 class NativeReader:
     def __init__(self, fname, pname=None, *, construct_con=True):
@@ -236,6 +237,8 @@ class NativeReader:
             # If we have any elements of this type then save the einfo
             if len(idxs):
                 eles[etype] = einfo
+
+        self.mesh.eles = eles
 
     def _read_nodes(self):
         enodes = [einfo['nodes'] for einfo in self.eles.values()]
