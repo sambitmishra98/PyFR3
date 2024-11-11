@@ -5,8 +5,10 @@ import numpy as np
 
 from pyfr.inifile import Inifile
 from pyfr.partitioners.base import BasePartitioner
+from pyfr.loadrelocator import LoadRelocator
 from pyfr.progress import NullProgressSequence
 
+from pyfr.mpiutil import get_comm_rank_root
 
 def reconstruct_partitioning(mesh, soln, progress=NullProgressSequence):
     if mesh['mesh-uuid'][()] != soln['mesh-uuid'][()]:

@@ -6,7 +6,7 @@ import numpy as np
 
 from pyfr.inifile import Inifile
 from pyfr.mpiutil import (Scatterer, SparseScatterer, autofree,
-                          get_comm_rank_root)
+                          get_comm_rank_root, initialise_new_comm, mpi)
 from pyfr.nputil import iter_struct
 
 
@@ -37,18 +37,34 @@ class _Mesh:
     eles: dict = field(default_factory=dict)
 
 class NativeReader:
-    def __init__(self, fname, pname=None, *, construct_con=True):
+    def __init__(self, fname, pname=None, *, construct_con=True, diffuse=False):
         self.f = h5py.File(fname, 'r')
         self.mesh = _Mesh(fname=fname, raw=self.f)
 
         # Read in and transform the various parts of the mesh
         self._read_metadata()
-        self._read_partitioning(pname)
-        self._read_eles()
-        self._read_nodes()
 
-        if construct_con:
-            self._construct_con()
+        pinfo = self.f[f'partitionings/{pname}']
+        nparts = len(pinfo['eles'].attrs['regions'])
+        if nparts != get_comm_rank_root('reader')[0].size:
+            if not diffuse:
+                raise RuntimeError(f'Partitioning {pname} has {nparts} parts '
+                                   f'but running with {comm.size} ranks')
+            else:
+                initialise_new_comm('reader', list(range(nparts)))
+
+        # Use the new communicator.
+        comm, rank, root = get_comm_rank_root('reader')
+
+        # With rest of the valid comms, do the rest
+        if comm != mpi.COMM_NULL:
+
+            self._read_partitioning(pname)
+            self._read_eles()
+            self._read_nodes()
+
+            if construct_con:
+                self._construct_con()
 
     def close(self):
         self.f.close()
@@ -63,7 +79,7 @@ class NativeReader:
         return soln
 
     def load_subset_mesh_soln(self, sname, prefix=None):
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_comm_rank_root('reader')
 
         with h5py.File(sname, 'r') as f:
             if rank == root:
@@ -147,7 +163,7 @@ class NativeReader:
 
     def _read_metadata(self):
         mesh = self.mesh
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_comm_rank_root('reader')
 
         if rank == root:
             creator = self.f['creator'][()].decode()
@@ -163,7 +179,7 @@ class NativeReader:
         mesh.creator, mesh.codec, mesh.uuid, mesh.version = meta
 
     def _read_with_idxs(self, dset, idxs):
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_comm_rank_root('reader')
 
         # Construct a Scatterer to read in and distribute the data
         s = Scatterer(comm, idxs)
@@ -191,7 +207,7 @@ class NativeReader:
         return pname, pinfo
 
     def _read_partitioning(self, pname=None):
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_comm_rank_root('reader')
         size = comm.size
 
         # Have the root rank read in the partitioning metadata
@@ -324,7 +340,7 @@ class NativeReader:
             self._construct_mpi_con(glmap, cefidx, resid)
 
     def _construct_mpi_con(self, glmap, cefidx, resid):
-        comm, rank, root = get_comm_rank_root()
+        comm, rank, root = get_comm_rank_root('reader')
 
         # Create a neighbourhood collective communicator
         ncomm = autofree(comm.Create_dist_graph_adjacent(self.neighbours,
