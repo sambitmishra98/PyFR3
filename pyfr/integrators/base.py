@@ -11,7 +11,7 @@ from pyfr.mpiutil import get_comm_rank_root, mpi, scal_coll
 from pyfr.plugins import get_plugin
 
 from pyfr.loadrelocator import LoadRelocator
-
+from pyfr.optimiser import WaitMinimiser
 
 def _common_plugin_prop(attr):
     def wrapfn(fn):
@@ -64,6 +64,9 @@ class BaseIntegrator:
 
         # Extract the UUID of the mesh (to be saved with solutions)
         self.mesh_uuid = mesh.uuid
+
+        self.observe_only = cfg.getbool('mesh', 'observe-only', True)
+        self.optimiser = WaitMinimiser(self)
 
         if cfg.getbool('mesh', 'enable-relocator', False):
             comm, rank, root = get_comm_rank_root()
