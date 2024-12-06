@@ -2,7 +2,7 @@ from collections import defaultdict, deque
 import itertools as it
 import re
 import sys
-import time
+from time import perf_counter
 
 import numpy as np
 
@@ -16,9 +16,9 @@ def _common_plugin_prop(attr):
         @property
         def newfn(self):
             if not (p := getattr(self, attr)):
-                t, c = time.time(), self._plugin_wtimes['common', None]
+                t, c = perf_counter(), self._plugin_wtimes['common', None]
                 p = fn(self)
-                self._plugin_wtimes['common', None] = c + time.time() - t
+                self._plugin_wtimes['common', None] = c + perf_counter() - t
                 setattr(self, attr, p)
 
             return p
@@ -63,7 +63,7 @@ class BaseIntegrator:
         self._invalidate_caches()
 
         # Record the starting wall clock time
-        self._wstart = time.time()
+        self._wstart = perf_counter()
 
         # Record the total amount of time spent in each plugin
         self._plugin_wtimes = defaultdict(lambda: 0)
@@ -146,12 +146,12 @@ class BaseIntegrator:
 
         # Fire off the plugins and tally up the runtime
         for plugin in self.plugins:
-            tstart = time.time()
+            tstart = perf_counter()
             tcommon = wtimes['common', None]
 
             plugin(self)
 
-            dt = time.time() - tstart - wtimes['common', None] + tcommon
+            dt = perf_counter() - tstart - wtimes['common', None] + tcommon
 
             pname = getattr(plugin, 'name', 'other')
             psuffix = getattr(plugin, 'suffix', None)
@@ -210,7 +210,8 @@ class BaseIntegrator:
         return self.nacptsteps + self.nrjctsteps
 
     def collect_stats(self, stats):
-        wtime = time.time() - self._wstart
+        wtime = perf_counter() - self._wstart
+        self._wtime = wtime
 
         # Simulation and wall clock times
         stats.set('solver-time-integrator', 'tcurr', self.tcurr)

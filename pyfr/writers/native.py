@@ -218,13 +218,13 @@ class _AsyncCompleter:
         self.callback = callback
 
         self.done = False
-        self.start = time.time()
+        self.start = time.perf_counter()
 
     def _test_with_timeout(self, timeout):
         comm, rank, root = get_comm_rank_root()
 
         if not self.done:
-            if time.time() - self.start >= timeout:
+            if time.perf_counter() - self.start >= timeout:
                 mpi.Request.Waitall(self.reqs)
 
             if mpi.Request.Testall(self.reqs):
