@@ -293,6 +293,50 @@ class BaseSystem:
 
         return stats
 
+    def instantaneous_rhs_wait_times(self):
+        # Group together timings for graphs which are semantically equivalent
+        times = defaultdict(list)
+        for u, f in self._rhs_uin_fout:
+            for i, g in enumerate(self._rhs_graphs(u, f)):
+                times[i].append(statistics.mean(g.get_wait_times()) if g.get_wait_times() else 0)
+
+        # This mean is across all RK stage registers I think.
+        mean_times = [statistics.mean(times[k]) for k in sorted(times.keys())]
+        
+        # This sum is across all graphs I think. Note the last one is zero.
+        return statistics.mean(mean_times[:-1])
+
+    def rhs_other_times(self):
+        # Group together timings for graphs which are semantically equivalent
+        times = defaultdict(list)
+        for u, f in self._rhs_uin_fout:
+            for i, g in enumerate(self._rhs_graphs(u, f)):
+                times[i].extend(g.get_other_times())
+
+        # Compute the mean and standard deviation
+        stats = []
+        for t in times.values():
+            mean = statistics.mean(t) if t else 0
+            stdev = statistics.stdev(t, mean) if len(t) >= 2 else 0
+            median = statistics.median(t) if t else 0
+
+            stats.append((mean, stdev, median))
+
+        return stats
+
+    def instantaneous_rhs_other_times(self):
+        # Group together timings for graphs which are semantically equivalent
+        times = defaultdict(list)
+        for u, f in self._rhs_uin_fout:
+            for i, g in enumerate(self._rhs_graphs(u, f)):
+                times[i].append(statistics.mean(g.get_other_times()) if g.get_other_times() else 0)
+
+        # This mean is across all RK stage registers I think.
+        mean_times = [statistics.mean(times[k]) for k in sorted(times.keys())]
+        
+        # This sum is across all graphs I think. Note the last one is zero.
+        return statistics.mean(mean_times[:-1])
+
     def _compute_grads_graph(self, t, uinbank):
         raise NotImplementedError(f'Solver "{self.name}" does not compute '
                                   'corrected gradients of the solution')
