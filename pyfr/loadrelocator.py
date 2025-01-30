@@ -760,13 +760,6 @@ class _MetaMeshes:
         else:
             return ''
 
-    def short_str(self):
-        """
-        A shortened version of mesh statistics towards logging.
-        For now, only print the number of elements for 'compute' mesh.
-        """
-        self._logger.info(f"Compute-mesh: {self.get_mmesh('compute').nelems} elements")
-
 class LoadRelocator():
     # Initialise as an empty list
     etypes = []
@@ -787,88 +780,55 @@ class LoadRelocator():
 
         self.new_ranks = list(range(mpi.COMM_WORLD.size))
 
-    def calc_target(self, mesh_name, times):
-        comm, rank, root = get_comm_rank_root()
+    def firstguess_target_nelems(self, weights: list[float]):
+        '''
+            Calculate the target elements per rank per rank weights.
+            
+            Args:
+                mesh_nelems (list[int]): Elements per rank in mesh 
+                weights (list[float]): Weights per rank.
 
-        self.curr_nelems = comm.allgather(self.mm.get_mmesh(mesh_name).nelems)
-        ctimes = comm.allgather(times)
-        
-        # If root rank, print the gathered performance and curr_nelems
-        if rank == root:
-            print(f"CURRENT: {ctimes} \t curr_nelems: {self.curr_nelems}")
+            Returns:
+                list[int]: Target elements per rank.
+                
+            Scenarios considered:
+                1. Weights sum to 1.
+                2. Target elements are integers that sum to total.
 
-        cost = [1/c for c in ctimes]
-        self.if_maximise = False
+            Rule of thumb:
+                1. Move any extra elements into rank with highest elements.
+                - Assumption: Lowest wait-time rank with highest number of 
+                              inter-rank interfaces load-balances the best.
+        '''
 
-        curr_nelems_in_rank = self.mm.get_mmesh(mesh_name).nelems
-        self.curr_nelems = comm.allgather(curr_nelems_in_rank)
+        weights = np.array(weights, dtype=float)
+        weights = weights / np.sum(weights, dtype=float)
 
-        cost_normalised = cost[rank]/sum(cost)
-        
-        t_nelems = self.mm.gnelems*cost_normalised
-        t_nelems_byrank = comm.allgather(t_nelems)
+        t_nelems = np.round(self.mm.gnelems*weights).astype(int)
 
-        extra_nelems = 0
+        # Move deficit into rank with highest elements
+        t_nelems[np.argmax(t_nelems)] += self.mm.gnelems - sum(t_nelems)
 
-        # Sort target and current in ascending order of current, then do the if condition
-        for target, current in zip(t_nelems_byrank, self.curr_nelems):
-            if current <= 100:
-                print(f"In rank {ind}: Nₑ = {current} ≤ 1.", flush=True)
-                ind = t_nelems_byrank.index(target)
-                extra_nelems += t_nelems_byrank[ind]
-                t_nelems_byrank[ind] = 0
-                break
-
-        self.new_ranks = list(range(comm.size))
-
-        for t in t_nelems_byrank:
+        for t in t_nelems:
             if t == 0:
-                self.new_ranks.remove(rank)
+                raise ValueError("Rank removal functionality incomplete.")
 
-        if extra_nelems > 0:
-            redist = extra_nelems/len(self.new_ranks)
-            t_nelems_byrank = [
-                t + redist if t != 0 else 0 for t in t_nelems_byrank
-                ]
+        self.move_priority = sorted(range(len(t_nelems)), 
+                                key=lambda k: t_nelems[k], reverse=True)
 
-        sorted_ranks = None
-        if rank == root:
-            sorted_ranks = sorted(range(comm.size), key=lambda r: ctimes[r], reverse=False)
-
-            # Step 2: Move all 0 elements in it, move to front
-            zero_tnelems_rank = [r for r in sorted_ranks if t_nelems_byrank[r] == 0]
-            for r in zero_tnelems_rank:
-                sorted_ranks.remove(r)
-                sorted_ranks.insert(0, r)
-            print(f"Move Priority: {sorted_ranks}")
-
-        self.move_priority = comm.bcast(sorted_ranks, root=root)
-        self._logger.info(f"Move Priority: {self.move_priority}")
-
-        # Finally, we make sure all ranks have integer number of elements
-        # Round off all the elements to the nearest integer. 
-        # Moving the rounding difference to root rank by default.
-        t_nelems_byrank = np.round(t_nelems_byrank)
-        total_nelems_overall = sum(t_nelems_byrank)
-        
-        t_nelems_byrank[root] += self.mm.gnelems - total_nelems_overall
-
-        # Convert to integer
-        t_nelems_byrank = [int(t) for t in t_nelems_byrank]
-        return t_nelems_byrank
+        # Convert to list of integers
+        return t_nelems.tolist()
 
     @memoize
     def equipartition_diffuse(self, mesh_name):
-        print("HOPEFULLY PERFORMED ONCE", flush=True)
+        print("Expectation: Perform this once", flush=True)
         comm = self.mm.get_mmesh(mesh_name).comm
 
-        # set move priority as a simple list of ranks
         self.move_priority = list(range(comm.size))
 
-        t_nelems = self.mm.gnelems/comm.size
-        t_nelems_byrank = [t_nelems]*comm.size
+        t_nelems = [self.mm.gnelems/comm.size]*comm.size
 
-        return self.diffuse_computation(mesh_name, t_nelems_byrank)
+        return self.diffuse_computation(mesh_name, t_nelems)
 
     def initialise_empty_rank(self, mesh_name, from_rank=0, to_rank=3):
         """
@@ -953,60 +913,86 @@ class LoadRelocator():
                 return etype, nrank_conp[0]
 
     @log_method_times
-    def diffuse_computation(self, mesh_name, t_nelems_byrank, cli = False):
+    def diffuse_computation(self, mesh_name, t_nelems, cli = False):
+        '''
+            Iteratively diffuse elements until reaching target within each rank.
+        '''
+
         comm, rank, root = get_comm_rank_root('compute')
 
         # Reset last iteration's leftover mesh.
         self.mm.move_mmesh(mesh_name+'_new', mesh_name)
         self.mm.copy_mmesh(mesh_name, mesh_name+'_new')
 
-        # Convert to numpy array for easier manipulation
-        t_nelems_byrank = np.array(t_nelems_byrank, dtype=int)
-        curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name).nelems), dtype=int)
-        nelems_diff = t_nelems_byrank - curr_nelems
+        curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name).nelems))
+        current_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
+        previous_nelems = np.zeros_like(current_nelems)
 
-        print(f"nelems_diff: {nelems_diff}", flush=True)
+        # Create a matrix that lets us decide whether or not to move elements across interface between i and j ranks
+        self.if_move_along_interface = np.ones((comm.size, comm.size))
 
-        if_relocated = False
+        # Create a movement-multiplier for elements movement
+        self.move_multiplier = np.ones((comm.size, comm.size))
 
-        for i in range(10):
+        ccc = current_nelems
 
-            curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
-            nelems_diff = t_nelems_byrank - curr_nelems
+        # If ccc is not equal to previous_nelems, then continue
+        while not np.array_equal(ccc, previous_nelems):
 
-            to_nrank = self.figure_out_move_to_nrank(nelems_diff[rank], self.mm.get_mmesh(mesh_name+'_new'))
-            move_elems = self.reloc_interface_elems(to_nrank, self.mm.get_mmesh(mesh_name+'_new'))
+            previous_nelems = ccc
+            ccc = comm.allgather(t_nelems[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems)
 
-            if_relocated = True
+            print("Current nelems: ", ccc, "Previous nelems: ", previous_nelems, flush=True)
+
+            nelems_diff = t_nelems - np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
+
+            # If any rank has elements to move that is lesser than 1% of initial t_nelems, then set the rows and columns in self.if_move_along_interface to 0
+            for i, diff in enumerate(nelems_diff):
+                if abs(diff) < 0.01 * curr_nelems[i]:
+                    self.if_move_along_interface[i, :] = 0
+                    self.if_move_along_interface[:, i] = 0
+
+            move_to_nrank = self.get_move_to_nrank(nelems_diff[rank], self.mm.get_mmesh(mesh_name+'_new'))
+
+            # Find out how many elements can be moved from row-rank to column-rank (all positive)
+            self.movable_to_nrank = self.get_movable_to_nrank(self.mm.get_mmesh(mesh_name+'_new'))
+
+            # Multiply with if_move_along_interface 
+            # to force-stop movement across some interfaces
+            self.movable_to_nrank = np.multiply(self.movable_to_nrank, 
+                                                self.if_move_along_interface)
 
             print(f"rank {rank}  \t "
                   f"Start: {self.mm.get_mmesh(mesh_name).nelems} "
                   f" \t Now: {self.mm.get_mmesh(mesh_name+'_new').nelems} --> \t ("
-                  f" {t_nelems_byrank[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems}"
-                  f") --> \t {t_nelems_byrank[rank]}", flush=True)
+                  f" {t_nelems[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems}"
+                  f") --> \t {t_nelems[rank]}", flush=True)
 
-            # Create temporary mesh to continue iterating
-            self.mm.copy_mmesh(mesh_name+'_new', mesh_name+'-temp', self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new')))
+            # Move elements
+            move_elems = self.reloc_interface_elems(move_to_nrank, self.mm.get_mmesh(mesh_name+'_new'))
+            self.mm.copy_mmesh(mesh_name+'_new', mesh_name+'-temp', 
+                               self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new')))
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_new')
-            
-            if not np.all([n for n in nelems_diff if n != 0]):
-                break
 
         self.mm.connect_mmeshes(mesh_name+'_new', mesh_name)
 
         if not cli:
             # CLI only needs eidxs, if-curved and if-mpi.
-            self.mm.get_mmesh(mesh_name+'_new').spts        = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts       , edim=0)
-            self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts_curved, edim=0)
+            self.mm.get_mmesh(mesh_name+'_new').spts = self.reloc(mesh_name, mesh_name+'_new', 
+                                               self.mm.get_mmesh(mesh_name).spts, 
+                                               edim=0)
+            self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', 
+                                               self.mm.get_mmesh(mesh_name).spts_curved, 
+                                               edim=0)
 
         # Re-create ary
         new_mesh = self.mm.get_mmesh(mesh_name+ '_new').to_mesh()
         
         print(self.mm, flush=True)
 
-        self.new_ranks = [r for r in range(comm.size) if t_nelems_byrank[r] > 0]
+        self.new_ranks = [r for r in range(comm.size) if t_nelems[r] > 0]
         
-        return new_mesh, if_relocated
+        return new_mesh, 1
 
     def reloc(self, src_mesh_name : str, dest_mesh_name: str,
                  edict: dict[str, np.ndarray],*, edim) -> dict[str, np.ndarray]:
@@ -1017,73 +1003,89 @@ class LoadRelocator():
         relocated_dict = dest_mmesh.interconnector[src_mesh_name].relocate(edict)
         return dest_mmesh.postproc_edict(relocated_dict, edim=edim)
 
-    def figure_out_move_to_nrank(self, nelems_diff: int, mesh: _MetaMesh):
+    def get_move_to_nrank(self, nelems_diff: int, mesh: _MetaMesh):
+        '''
+            Save element movements as a matrix, 
+            Elements move from row-rank to column-rank.
+        '''
+
         comm, rank, root = get_comm_rank_root()
 
-        ncon_p_nrank_etype = mesh.ncon_p_nrank_etype
-        ncon_p_nrank       = mesh.ncon_p_nrank
-        ncon_p             = mesh.ncon_p
-
-        nranks = comm.size
-
-        move_to_nrank = np.zeros((nranks, nranks))
-        for nrank, inters in ncon_p_nrank_etype.items():
+        move_to_nrank = np.zeros((comm.size, comm.size))
+        for nrank, inters in mesh.ncon_p_nrank_etype.items():
             if nelems_diff != 0:
-                if ncon_p > 0:
-                    move_to_nrank[rank,nrank] = -nelems_diff * ncon_p_nrank[nrank] / ncon_p
+                if mesh.ncon_p > 0:
+                    move_to_nrank[rank, nrank] = -nelems_diff * mesh.ncon_p_nrank[nrank] / mesh.ncon_p
                 else:
-                    move_to_nrank[rank,nrank] = 0
+                    move_to_nrank[rank, nrank] = 0
         move_to_nrank = comm.allreduce(move_to_nrank, op=mpi.SUM)
         move_to_nrank = np.maximum((move_to_nrank - move_to_nrank.T) / 2, 0)
-        self._logger.info(f"Movement of elements to nrank: {move_to_nrank}")
 
         return move_to_nrank
 
-    def reloc_interface_elems(self, move_to_nrank: np.ndarray, 
-                                    mesh: _MetaMesh,
-                                    ):
+    def get_movable_to_nrank(self, mesh):
 
         comm, rank, root = get_comm_rank_root()
 
-        nranks = comm.size
+        # Store available movable elements as a matrix 
+        movable_to_nrank = np.zeros((comm.size, comm.size))
 
-        gcon_p             = mesh.gcon_p
-        ncon_p_nrank_etype = mesh.ncon_p_nrank_etype
-        ncon_p             = mesh.ncon_p
+        for nrank in mesh.con_p.keys():
+            for etype in self.mm.etypes:
+                n_available = mesh.ncon_p_nrank_etype[nrank][etype]
+                movable_to_nrank[rank, nrank] = n_available
+                movable_to_nrank[nrank, rank] = n_available
+
+        return movable_to_nrank
+
+    def reloc_interface_elems(self, move_to_nrank: np.ndarray, mesh: _MetaMesh):
+
+        comm, rank, root = get_comm_rank_root()
 
         # Break into loops
         move_elems = {nrank: {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes} for nrank in mesh.con_p.keys()}
+
         for nrank in mesh.con_p.keys():
             for etype in self.mm.etypes:
+
+
+                #n_available = mesh.ncon_p_nrank_etype[nrank][etype]
+                # Instead of taking from mesh object, take from the matrix
+                n_available = self.movable_to_nrank[rank, nrank]
                 
-                #move_nelems_nrank_etype = np.random.rand(ncon_p_nrank_etype[nrank][etype]) < min(1, move_to_nrank[rank][nrank] /ncon_p)
-
-                # Number of elements available to move for this etype with nrank
-                n_available = ncon_p_nrank_etype[nrank][etype]
-
                 if n_available == 0:
                     # No rank interfaces, element movement impossible.
                     move_elemsf = np.array([], dtype=np.int32)
                 else:
                     # Number of elements to move for this etype with nrank
-                    #print(f"ncon_p = {ncon_p} \t n_available = {n_available} \t move_to_nrank = {move_to_nrank[rank][nrank]}")
-                    n_to_move = int(np.round(move_to_nrank[rank][nrank] * n_available / ncon_p))
+                    n_to_move = np.round(move_to_nrank[rank][nrank]).astype(int)
+                    # n_to_move = np.round(move_to_nrank[rank][nrank] * n_available / mesh.ncon_p).astype(int)
 
-                    # Ensure n_to_move does not exceed available elements
+                    # Enforce Nₑ-to-move ≤ Nₑ-available-to-move
                     n_to_move = min(n_to_move, n_available)
 
-                    if n_to_move >= n_available or n_to_move in [1, 2]:
-                        # Move all elements if 
-                        #   if more elements to move than interfaces with nrank
-                        #   if only 1 or 2 elements
-                        move_elemsf = gcon_p[nrank][etype]
+                    if n_to_move in [1, 2]:
+                        # If only 1 or 2 elements needed to move
+                        # Move all elements 
+                        move_elemsf = mesh.gcon_p[nrank][etype]
+                    elif n_to_move == n_available:
+                        # If elements to move > interface elements with nrank
+                        # Move all elements 
+                        move_elemsf = mesh.gcon_p[nrank][etype]
                     else:
-                        # Randomly select n_to_move elements from available elements
-                        move_elemsf = np.random.choice(gcon_p[nrank][etype], 
-                                                       size=n_to_move, 
+                        # Select any n_to_move elements from interface elements
+
+                        n_to_move = np.floor(n_to_move* self.move_multiplier[rank, nrank]).astype(int)
+
+                        move_elemsf = np.random.choice(mesh.gcon_p[nrank][etype], 
+                                                       size=n_to_move,
                                                        replace=False)
 
-                    move_elemsf = [intelem for intelem, move in zip(gcon_p[nrank][etype], move_elemsf) if move]
+                        # Set move multiplier to half for that movement interface
+                        self.move_multiplier[rank, nrank] /= 2 # 1.1
+                        self.move_multiplier[nrank, rank] /= 2 # 1.1
+
+                    move_elemsf = [intelem for intelem, move in zip(mesh.gcon_p[nrank][etype], move_elemsf) if move]
 
 
                     move_elemsf = np.array(move_elemsf, dtype=np.int32)
@@ -1097,14 +1099,14 @@ class LoadRelocator():
         move_elems_f = {nrank: move_elems[nrank] for nrank in sorted(move_elems.keys())}
 
         # Add empty arrays if we are not moving anything to nranks
-        for nrank in range(nranks):
+        for nrank in range(comm.size):
             if nrank not in move_elems_f:
                 move_elems_f[nrank] = {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes}
 
         rem_dups = self.remove_duplicate_movements(move_elems_f, mesh)
         
         # Add empty arrays if we are not moving anything to nranks
-        for nrank in range(nranks):
+        for nrank in range(comm.size):
             if nrank not in rem_dups:
                 rem_dups[nrank] = {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes}
         

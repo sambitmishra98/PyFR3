@@ -36,6 +36,7 @@ class BaseStdIntegrator(BaseCommon, BaseIntegrator):
 
         # Global degree of freedom count
         self._gndofs = self._get_gndofs()
+        print(self._gndofs)
 
     @_common_plugin_prop('_curr_soln')
     def soln(self):

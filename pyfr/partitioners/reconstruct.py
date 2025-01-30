@@ -68,8 +68,8 @@ def reconstruct_by_diffusion(mesh, name, part_wts,
         t_nelems_byrank = [load_relocator.mm.gnelems*part_wt/
                             sum(part_wts) for part_wt in part_wts]
 
-    with progress.start('Initialise empty ranks'):
-        mesh = load_relocator.initialise_empty_rank('diffuse')
+    #with progress.start('Initialise empty ranks'):
+    #    mesh = load_relocator.initialise_empty_rank('diffuse')
 
     with progress.start('Start diffusion'):
         mesh = load_relocator.diffuse_computation('diffuse', t_nelems_byrank,

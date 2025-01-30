@@ -4,7 +4,8 @@ from scipy.optimize import minimize
 from scipy.stats import norm
 
 from pyfr.modeller import (IntegratorPerformanceLoadingGPModeller, 
-                           IntegratorWaitPerRankModeller)
+                           IntegratorWaitPerRankModeller,
+                           IntegratorNonWaitPerRankModeller)
 
 
 class PerformanceMaximiser(IntegratorPerformanceLoadingGPModeller):
@@ -47,3 +48,8 @@ class WaitMinimiser(IntegratorWaitPerRankModeller):
     def __init__(self, intg):
         super().__init__(intg)
     
+
+class WaitMinimiser(IntegratorNonWaitPerRankModeller):
+    
+    def __init__(self, intg):
+        super().__init__(intg)

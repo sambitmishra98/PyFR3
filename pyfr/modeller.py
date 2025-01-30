@@ -80,6 +80,13 @@ class WaitPerRankModellerMixin(Modeller):
 
         return cost_means, cost_stds
 
+
+class ElementsPerNonwaitModellerMixin(Modeller):
+    @property
+    def weight(self):
+        return int(self.stats["weight"][2])
+
+
 class PerformanceModellerMixin(Modeller):
     @property
     def cost(self) -> float:
@@ -208,6 +215,14 @@ class IntegratorWaitPerRankModeller(IntegratorPerformanceObserver,
                                     LoadingPerRankModellerMixin,
                                     WaitPerRankModellerMixin,
                                     NoModeller
+                                    ):
+    def __init__(self, intg):
+        super().__init__(intg)
+
+class IntegratorNonWaitPerRankModeller(IntegratorPerformanceObserver, 
+                                       LoadingPerRankModellerMixin,
+                                       ElementsPerNonwaitModellerMixin,
+                                       NoModeller
                                     ):
     def __init__(self, intg):
         super().__init__(intg)

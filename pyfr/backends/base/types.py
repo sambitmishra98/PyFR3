@@ -293,7 +293,6 @@ class XchgView:
 
 class Graph:
     def __init__(self, backend):
-        comm, rank, root = get_comm_rank_root()
         self.backend = backend
         self.committed = False
 

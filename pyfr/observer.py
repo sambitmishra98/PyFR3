@@ -11,7 +11,6 @@ class IntegratorObserver(Observer):
     def __init__(self):
         super().__init__()
 
-        self.nskip = 10001
     
 class IntegratorPerformanceObserver(IntegratorObserver):
 
@@ -20,6 +19,13 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 
         self.intg = intg
 
+        self.nskip = 1 + intg.cfg.getint('backend', 'collect-wait-times-len', 10000)
+        self.windows = 1
+        self.K_p = intg.cfg.getfloat('mesh', 'lb-proportionality', 1.0)
+
+        # self.performance is a list of tuples: [window size, mean performance, std performance]
+        self.performance = []
+
         # Collect the time difference between two steps
         self.nᵢ = 0  # Last number of function evaluations
         self.tᵢ = 0. # Last physical time
@@ -27,7 +33,7 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 
         self.stat_lists = {
             'Δt'    : [], 'Δn'    : [],
-            'Δwait' : [], 'Δother': [],
+            'Δwait' : [], 'Δother': [], 'Δotherinverse': [],
 #            'Δp'    : [], 
 #            'Δlb'   : [], 'Δreset': [],
         }
@@ -41,6 +47,7 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 
             # Derivatives of the basics
             # 'compute': (0,0,0), 
+            'otherinverse': (0,0,0), 
             'others-perdof': (0,0,0), 
             
             # Others
@@ -87,7 +94,8 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         # Get instantaneous other times and sum over groups
         inst_rhs_otimes = self.intg.system.instantaneous_rhs_other_times()
         total_inst_rhs_otime = inst_rhs_otimes / self.stat_lists['Δn'][-1]
-        self.stat_lists['Δother'].append(total_inst_rhs_otime)
+        self.stat_lists['Δother'       ].append(    total_inst_rhs_otime)
+        self.stat_lists['Δotherinverse'].append(1 / total_inst_rhs_otime)
 
         # Plugin time difference
         #p_now, p_prev = self.intg._plugin_wtimes['common', None], self.pᵢ
@@ -104,12 +112,28 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 #        if hasattr(self.intg, 'reset_diff'):
 #            self.stat_lists['Δreset'].append(self.intg.reset_diff)
 
-    def collect_statistics(self):
+    def process_statistics(self):
 
         self.stats |= self.rhs_times_from_self()
-        self.stats |= self.compute_times()
         self.stats |= self.others()
 
+        # Append performance for the weights we just tested using other-times
+        self.performance.append((self.stats['step-fevals'][0],
+                                 self.stats['otherinverse'][0], 
+                                 self.stats['otherinverse'][1],
+                                 ))
+
+
+
+
+
+        # If self.performance length is longer than window, then error
+        if len(self.performance) > self.windows:
+            raise ValueError("Performance array is longer than window")
+        
+
+        # Write to csv
+        # ---------------------------------------------------------------------
         with open(self.csv, 'a') as f:
             row = []
             row.extend([self.status['tcurr'], self.status['nfevals'],])
@@ -118,12 +142,12 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 
         # Print on a separate csv, wait and other and plugin times
         comm, rank, root = get_comm_rank_root()
-        with open(f'wait-{rank}.csv', 'w') as f:
+        with open(f'./waits/wait-{rank}.csv', 'w') as f:
             # All list in one column
             for i in range(len(self.stat_lists['Δwait'])):
                 f.write(f'{self.stat_lists["Δwait"][i]}\n')
                 
-        with open(f'other-{rank}.csv', 'w') as f:
+        with open(f'./others/other-{rank}.csv', 'w') as f:
             # All list in one column
             for i in range(len(self.stat_lists['Δother'])):
                 f.write(f'{self.stat_lists["Δother"][i]}\n')
@@ -136,11 +160,12 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         # Write value of solver.tcurr to csv
         with open(f'./statistics/statistics-{rank}.csv', 'a') as f:
             row = [ str(self.Nₑ)]
-            row.extend([str(x) for x in self.lost_time])
+            row.extend([str(self.otherinverse)])
             row.extend([str(int(x)) for x in self.gathered_Δd])
-            row.extend([str(x) for x in self.expected_times_per_rank])
             row.extend([str(x) for x in self.actual_times_overall])
             f.write(','.join(row) + '\n')
+        # ---------------------------------------------------------------------
+
 
     def stats_from_list(self, data_list):
         # Always skip the first few steps 
@@ -166,15 +191,9 @@ class IntegratorPerformanceObserver(IntegratorObserver):
                             in self.intg.system.ele_shapes.items()}.values())
 
     @property
-    def gathered_DoFs(self):
-
+    def Nₑ_global(self):
         comm, rank, root = get_comm_rank_root()
-
-        dof = sum(self.intg.system.ele_ndofs)
-
-
-        return comm.allgather(self.Nₑ)
-
+        return comm.allreduce(self.Nₑ)
 
     def rhs_times_from_self(self):
 
@@ -185,28 +204,31 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         temp_stats = {
             'wait' : self.stats_from_list(self.stat_lists['Δwait' ]),
             'other': self.stats_from_list(self.stat_lists['Δother']),
+            'otherinverse': self.stats_from_list(self.stat_lists['Δotherinverse']),
             'total': self.stats_from_list(self.stat_lists['Δtotal']),
         }
         
         return temp_stats
+
+    def weight_definition(self, stat_lists):
+        comm, rank, root = get_comm_rank_root()
+    
+        w_local = [self.Nₑ * o for o in stat_lists['Δotherinverse']]
+        w_all = np.array(comm.allgather(w_local))
+        w_all /= w_all.sum(axis=0)
+        w_all = np.round(w_all * self.Nₑ_global).astype(int)
+
+        curr_dist = np.array(comm.allgather(self.Nₑ))
+
+        curr_dist = curr_dist[:, None]
+        curr_Nₑ = np.tile(curr_dist, (1, w_all.shape[1]))
+        new_all = (curr_Nₑ + self.K_p * (w_all - curr_Nₑ)).astype(int)
+
+        return new_all[rank].tolist()
+
     def others(self):
 
-        # Get current partition weight as a product of other times and number of elements
-
-        self.stat_lists['weight'] = [self.Nₑ*wait for wait in self.stat_lists['Δwait']]
-
-        comm, rank, root = get_comm_rank_root()
-        
-        all_weight_lists = comm.allgather(self.stat_lists['weight'])
-        
-        all_weight_lists = np.array(all_weight_lists)
-        all_weight_lists = all_weight_lists / all_weight_lists.sum(axis=0)
-
-        # Multiply by 1000, then round to integers
-        all_weight_lists = np.round(all_weight_lists * 10000).astype(int)
-
-        # Extract for this rank, then convert to list
-        self.stat_lists['weight'] = all_weight_lists[rank].tolist()
+        self.stat_lists['weight'] = self.weight_definition(self.stat_lists)
 
         temp_stats = {
             'step-fevals': self.stats_from_list(self.stat_lists['Δn']),
@@ -215,20 +237,10 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         
         return temp_stats
 
-    @property
-    def simulation_time_inrank(self):
-        return self.stats['other'][0]
-    
     def allgather_stats_from_list(self, list_name):
         comm, rank, root = get_comm_rank_root()
         cpd = np.array(comm.allgather(self.stat_lists[list_name])).sum(axis=0)
         return cpd.mean(), cpd.std()
-
-    @property
-    def expected_times_per_rank(self):
-        # Ignoring wait times 
-        # since we wait for communication among other ranks. (both send/recv)
-        return self.allgather_stats_from_list('Δother-perdof')
 
     @property
     def actual_times_overall(self):
@@ -240,9 +252,17 @@ class IntegratorPerformanceObserver(IntegratorObserver):
     @property
     def lost_time(self):
         #get mean and std
-        return ((self.stats['wait'][0] + self.stats['total'][0])/self.Δd, 
-                (self.stats['wait'][1] + self.stats['total'][1])/self.Δd,
+        return ((self.stats['wait'][0])/self.Δd, 
+                (self.stats['wait'][1])/self.Δd,
                 ) if self.Δd != 0 else (0,0)
+
+    @property
+    def otherinverse(self):
+        return self.stats['otherinverse'][0]
+
+    @property
+    def median_weight(self):
+        return self.stats['weight'][2]
 
     @property
     def Δd(self):
@@ -255,51 +275,5 @@ class IntegratorPerformanceObserver(IntegratorObserver):
     
         return comm.allgather(self.Δd)
 
-    #---------------------------------------------------------
-    # ARCHIVED
-    #---------------------------------------------------------    
-
-    def compute_times(self):
-
-        # Degrees of freedom evaluated per step: meshDoFs × nfevals
-
-        #self.stat_lists['Δcompute'] = [total - plugin for total, plugin in zip(self.stat_lists['Δtotal'], self.stat_lists['Δp'])]
-#        self.stat_lists['Δcompute'] = self.stat_lists['Δtotal']
-        self.stat_lists['Δother-perdof'] = [x/self.Δd for x in self.stat_lists['Δother']]
-
-        temp_stats = {
-#            'plugin'        : self.stats_from_list(self.stat_lists['Δp']),
-#            'compute'       : self.stats_from_list(self.stat_lists['Δcompute']),
-            'others-perdof': self.stats_from_list(self.stat_lists['Δother-perdof'])
-                      }
-
-        return temp_stats
-    
-    
-    @staticmethod
-    def rhs_times_from_system(system):
-    
-        # Wait times statistics 
-        rhs_wtimes = system.rhs_wait_times()
-        rhs_otimes = system.rhs_other_times() 
-        wmean = sum(mean for mean, std, med in rhs_wtimes)
-        wmed  = sum(med for mean, std, med in rhs_wtimes)
-        wstd = np.sqrt(sum(std**2 for mean, std, med in rhs_wtimes))
-        omean = sum(mean for mean, std, med in rhs_otimes)
-        ostd  = np.sqrt(sum(std**2 for mean, std, med in rhs_otimes))
-        omed  = sum(med for mean, std, med in rhs_otimes)
-
-        tmean = wmean + omean
-        tstd  = np.sqrt(wstd**2 + ostd**2)
-        tmed  = wmed  + omed
-
-        # Store all in dict
-        temp_stat = {
-            'wait'   : (wmean, wstd, wmed, ),
-            'other'  : (omean, ostd, omed, ),
-            'total'  : (tmean, tstd, tmed, ),
-        }
-
-        return temp_stat
-
-    
+    def increase_capture_window(self):
+        self.windows += 1

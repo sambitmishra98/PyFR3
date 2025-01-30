@@ -65,20 +65,16 @@ class BaseIntegrator:
         # Extract the UUID of the mesh (to be saved with solutions)
         self.mesh_uuid = mesh.uuid
 
-        self.observe_only = cfg.getbool('mesh', 'observe-only', True)
-        self.optimiser = WaitMinimiser(self)
+        if cfg.getbool('mesh', 'collect-statistics', False):
+            self.optimiser = WaitMinimiser(self)
 
         if cfg.getbool('mesh', 'enable-relocator', False):
             comm, rank, root = get_comm_rank_root()
-            self.observe_only = cfg.getbool('mesh', 'observe-only', True)
 
-            if comm.size == 1 and not self.observe_only:
+            if comm.size == 1:
                 raise ValueError('Relocation is only supported in parallel')
 
-            self.tol = self.cfg.getfloat('mesh', 'imbalance-tol', 0.1)
-
-            if not self.observe_only:
-                self.load_relocator = LoadRelocator(mesh)
+            self.load_relocator = LoadRelocator(mesh)
 
         self.lbdiff = 0.
         self.pprev  = 0.
