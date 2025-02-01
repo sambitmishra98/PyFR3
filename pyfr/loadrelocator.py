@@ -913,60 +913,60 @@ class LoadRelocator():
                 return etype, nrank_conp[0]
 
     @log_method_times
-    def diffuse_computation(self, mesh_name, t_nelems, cli = False):
+    def diffuse_computation(self, mesh_name, target_nelems, cli = False):
         '''
             Iteratively diffuse elements until reaching target within each rank.
+            This function is specific to 'compute' meta-mesh.
         '''
 
+        # Get MPI comm world for 'compute' mesh
         comm, rank, root = get_comm_rank_root('compute')
 
-        # Reset last iteration's leftover mesh.
+        # Create a copy of the meta mesh
         self.mm.move_mmesh(mesh_name+'_new', mesh_name)
         self.mm.copy_mmesh(mesh_name, mesh_name+'_new')
 
-        curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name).nelems))
-        current_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
-        previous_nelems = np.zeros_like(current_nelems)
-
+        init_nelems     = self.mm.get_mmesh(mesh_name).nelems
+        previous_nelems = np.zeros(comm.size, dtype=int)
+        curr_nelems  = np.array(comm.allgather(self.mm.get_mmesh(mesh_name).nelems))
+        
         # Create a matrix that lets us decide whether or not to move elements across interface between i and j ranks
         self.if_move_along_interface = np.ones((comm.size, comm.size))
 
         # Create a movement-multiplier for elements movement
-        self.move_multiplier = np.ones((comm.size, comm.size))
-
-        ccc = current_nelems
 
         # If ccc is not equal to previous_nelems, then continue
-        while not np.array_equal(ccc, previous_nelems):
+        for _ in range(comm.size**2):
+            if not np.array_equal(curr_nelems, previous_nelems):
+                # Then break
+                break
 
-            previous_nelems = ccc
-            ccc = comm.allgather(t_nelems[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems)
+            target_nelems = self.freeze_ranks_and_update_targets(previous_nelems, curr_nelems, target_nelems)
+            previous_nelems = curr_nelems
 
-            print("Current nelems: ", ccc, "Previous nelems: ", previous_nelems, flush=True)
+            if rank == root:
+                print(f"Current nelems: {curr_nelems} \t New movements: {target_nelems - curr_nelems}", flush=True)
 
-            nelems_diff = t_nelems - np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
+            nelems_diff = target_nelems - np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
 
-            # If any rank has elements to move that is lesser than 1% of initial t_nelems, then set the rows and columns in self.if_move_along_interface to 0
+            # If any rank moves < 1% initial t_nelems, set rows/columns in self.if_move_along_interface to 0
             for i, diff in enumerate(nelems_diff):
-                if abs(diff) < 0.01 * curr_nelems[i]:
+                if abs(diff) < 0.01 * init_nelems:
                     self.if_move_along_interface[i, :] = 0
                     self.if_move_along_interface[:, i] = 0
 
-            move_to_nrank = self.get_move_to_nrank(nelems_diff[rank], self.mm.get_mmesh(mesh_name+'_new'))
-
-            # Find out how many elements can be moved from row-rank to column-rank (all positive)
+            move_to_nrank         = self.get_move_to_nrank(nelems_diff[rank], self.mm.get_mmesh(mesh_name+'_new'))
             self.movable_to_nrank = self.get_movable_to_nrank(self.mm.get_mmesh(mesh_name+'_new'))
 
-            # Multiply with if_move_along_interface 
-            # to force-stop movement across some interfaces
+            # Force-stop movement across some interfaces
             self.movable_to_nrank = np.multiply(self.movable_to_nrank, 
                                                 self.if_move_along_interface)
 
-            print(f"rank {rank}  \t "
-                  f"Start: {self.mm.get_mmesh(mesh_name).nelems} "
-                  f" \t Now: {self.mm.get_mmesh(mesh_name+'_new').nelems} --> \t ("
-                  f" {t_nelems[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems}"
-                  f") --> \t {t_nelems[rank]}", flush=True)
+            #print(f"rank {rank}  \t "
+            #      f"Start: {self.mm.get_mmesh(mesh_name).nelems} "
+            #      f" \t Now: {self.mm.get_mmesh(mesh_name+'_new').nelems} --> \t ("
+            #      f" {t_nelems[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems}"
+            #      f") --> \t {t_nelems[rank]}", flush=True)
 
             # Move elements
             move_elems = self.reloc_interface_elems(move_to_nrank, self.mm.get_mmesh(mesh_name+'_new'))
@@ -974,6 +974,8 @@ class LoadRelocator():
                                self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new')))
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_new')
 
+            curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
+        
         self.mm.connect_mmeshes(mesh_name+'_new', mesh_name)
 
         if not cli:
@@ -990,9 +992,30 @@ class LoadRelocator():
         
         print(self.mm, flush=True)
 
-        self.new_ranks = [r for r in range(comm.size) if t_nelems[r] > 0]
+        self.new_ranks = [r for r in range(comm.size) if target_nelems[r] > 0]
         
         return new_mesh, 1
+
+
+    def freeze_ranks_and_update_targets(self, gprev,  gcurr, gtarget):
+        """ For all ranks that did not change their elements, set freeze to 1.
+            Then, set target equal to curr.
+            Distribute left over elements to non-frozen ranks.
+            Make sure target sum of target is still same as curr
+            Return target.
+        """
+        
+        frozen = np.array([p==c for p, c in zip(gprev, gcurr)], dtype=bool)
+        new_gtarget = np.where(frozen, gcurr, gtarget)
+        
+        # Distribute left over elements to non-frozen ranks such that targets increase
+
+        sum_diff_frozen = np.sum(np.multiply(frozen, gtarget - gcurr))
+        non_frozen = np.multiply((1-frozen), gtarget)
+        print(f"Redistribution: {sum_diff_frozen*non_frozen / np.sum(non_frozen)}", flush=True)
+        new_gtarget += sum_diff_frozen*non_frozen / np.sum(non_frozen)
+
+        return new_gtarget
 
     def reloc(self, src_mesh_name : str, dest_mesh_name: str,
                  edict: dict[str, np.ndarray],*, edim) -> dict[str, np.ndarray]:
@@ -1074,16 +1097,9 @@ class LoadRelocator():
                         move_elemsf = mesh.gcon_p[nrank][etype]
                     else:
                         # Select any n_to_move elements from interface elements
-
-                        n_to_move = np.floor(n_to_move* self.move_multiplier[rank, nrank]).astype(int)
-
                         move_elemsf = np.random.choice(mesh.gcon_p[nrank][etype], 
                                                        size=n_to_move,
                                                        replace=False)
-
-                        # Set move multiplier to half for that movement interface
-                        self.move_multiplier[rank, nrank] /= 2 # 1.1
-                        self.move_multiplier[nrank, rank] /= 2 # 1.1
 
                     move_elemsf = [intelem for intelem, move in zip(mesh.gcon_p[nrank][etype], move_elemsf) if move]
 
