@@ -23,9 +23,6 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         self.windows = 1
         self.K_p = intg.cfg.getfloat('mesh', 'lb-proportionality', 1.0)
 
-        # self.performance is a list of tuples: [window size, mean performance, std performance]
-        self.performance = []
-
         # Collect the time difference between two steps
         self.nᵢ = 0  # Last number of function evaluations
         self.tᵢ = 0. # Last physical time
@@ -114,23 +111,10 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 
     def process_statistics(self):
 
+        comm, rank, root = get_comm_rank_root('compute')
+
         self.stats |= self.rhs_times_from_self()
         self.stats |= self.others()
-
-        # Append performance for the weights we just tested using other-times
-        self.performance.append((self.stats['step-fevals'][0],
-                                 self.stats['otherinverse'][0], 
-                                 self.stats['otherinverse'][1],
-                                 ))
-
-
-
-
-
-        # If self.performance length is longer than window, then error
-        if len(self.performance) > self.windows:
-            raise ValueError("Performance array is longer than window")
-        
 
         # Write to csv
         # ---------------------------------------------------------------------
@@ -141,7 +125,6 @@ class IntegratorPerformanceObserver(IntegratorObserver):
             f.write(','.join(map(str, row)) + '\n')
 
         # Print on a separate csv, wait and other and plugin times
-        comm, rank, root = get_comm_rank_root()
         with open(f'./waits/wait-{rank}.csv', 'w') as f:
             # All list in one column
             for i in range(len(self.stat_lists['Δwait'])):
@@ -262,7 +245,7 @@ class IntegratorPerformanceObserver(IntegratorObserver):
 
     @property
     def median_weight(self):
-        return self.stats['weight'][2]
+        return self.stats['weight'][2].astype(float)
 
     @property
     def Δd(self):

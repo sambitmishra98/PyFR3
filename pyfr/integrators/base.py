@@ -68,6 +68,10 @@ class BaseIntegrator:
         if cfg.getbool('mesh', 'collect-statistics', False):
             self.optimiser = WaitMinimiser(self)
 
+            # Check if we remove last rank, and when to add back
+            self.optimiser.n_tlist_rank_remove = cfg.getint('mesh', 'n-tlist-rank-remove', None)
+            self.optimiser.n_tlist_rank_add    = cfg.getint('mesh', 'n-tlist-rank-add'   , None)
+
         if cfg.getbool('mesh', 'enable-relocator', False):
             comm, rank, root = get_comm_rank_root()
 
@@ -98,6 +102,8 @@ class BaseIntegrator:
                                           'dt-adjust-max-fact', 1.001)
         self.dt_fallback = cfg.getfloat('solver-time-integrator', 'dt')
         self.dt_near = None
+
+        self.called_plugin_dt = False
 
     def adjust_dt(self, t):
         # Time difference to traverse 
@@ -158,6 +164,16 @@ class BaseIntegrator:
 
         return plugins
 
+    def _reget_plugins(self):
+        plugins = []
+
+        for s in self.cfg.sections():
+            if (m := re.match('(soln|solver)-plugin-(.+?)(?:-(.+))?$', s)):
+                cfgsect, ptype, name, suffix = m[0], m[1], m[2], m[3]
+                plugins.append(get_plugin(ptype, name, self, cfgsect, suffix))
+
+        return plugins
+
     def _run_plugins(self):
         wtimes = self._plugin_wtimes
 
@@ -192,6 +208,9 @@ class BaseIntegrator:
             return f'plugins/{name}'
 
     def call_plugin_dt(self, dt):
+        if self.called_plugin_dt:
+            return
+        
         ta = self.tlist
         tb = deque(np.arange(self.tend - dt, self.tcurr, -dt).tolist()[::-1])
 
@@ -279,11 +298,12 @@ class BaseIntegrator:
     def _check_abort(self):
         comm, rank, root = get_comm_rank_root()
 
-        if scal_coll(comm.Allreduce, int(self._abort), op=mpi.LOR):
-            self._finalise_plugins()
+        if comm != mpi.COMM_NULL:
+            if scal_coll(comm.Allreduce, int(self._abort), op=mpi.LOR):
+                self._finalise_plugins()
 
-            reason = self._abort_reason
-            sys.exit(comm.allreduce(reason, op=lambda x, y: x or y))
+                reason = self._abort_reason
+                sys.exit(comm.allreduce(reason, op=lambda x, y: x or y))
 
 
 class BaseCommon:

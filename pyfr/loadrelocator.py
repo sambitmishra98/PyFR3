@@ -46,7 +46,7 @@ class _MetaMesh(_Mesh):
 
         etypes = list(sorted(mesh.etypes))
 
-        world_comm = get_comm_rank_root('world')[0]
+        world_comm = get_comm_rank_root('base')[0]
         reader_comm = get_comm_rank_root('reader')[0]
         comm = get_comm_rank_root('compute')[0]
 
@@ -804,17 +804,10 @@ class LoadRelocator():
         weights = np.array(weights, dtype=float)
         weights = weights / np.sum(weights, dtype=float)
 
-        t_nelems = np.round(self.mm.gnelems*weights).astype(int)
+        t_nelems = self.mm.gnelems*weights
 
         # Move deficit into rank with highest elements
         t_nelems[np.argmax(t_nelems)] += self.mm.gnelems - sum(t_nelems)
-
-        for t in t_nelems:
-            if t == 0:
-                raise ValueError("Rank removal functionality incomplete.")
-
-        self.move_priority = sorted(range(len(t_nelems)), 
-                                key=lambda k: t_nelems[k], reverse=True)
 
         # Convert to list of integers
         return t_nelems.tolist()
@@ -824,67 +817,77 @@ class LoadRelocator():
         print("Expectation: Perform this once", flush=True)
         comm = self.mm.get_mmesh(mesh_name).comm
 
-        self.move_priority = list(range(comm.size))
-
         t_nelems = [self.mm.gnelems/comm.size]*comm.size
 
-        return self.diffuse_computation(mesh_name, t_nelems)
+        return self.diffuse_computation(mesh_name, t_nelems, list(range(comm.size)))
 
-    def initialise_empty_rank(self, mesh_name, from_rank=0, to_rank=3):
+    def add_rank(self, mesh_name, soln, from_rank, to_rank):
         """
         Re-initialize the mesh distribution by moving elements from 'from_rank' to 'to_rank'.
-
+        If no suitable element can be located by the usual method, a fallback (first available element)
+        is used.
+        
         Parameters:
-            mesh_name (str): The name of the mesh to modify.
-            from_rank (int): The rank number to move elements from.
-            to_rank (int): The rank number to move elements to.
-            etypes (list[str], optional): etypes considered. Default to all.
+        mesh_name (str): The name of the mesh to modify.
+        from_rank (int): The rank from which an element will be removed.
+        to_rank (int): The rank to which the element will be added.
         """
         comm, rank, root = get_comm_rank_root('compute')
 
-        self.mm.copy_mmesh(mesh_name, f'{mesh_name}_reinitialised')
-        mm_re = self.mm.get_mmesh(f'{mesh_name}_reinitialised')
+        # Validate that the given rank numbers are in range.
+        if from_rank < 0 or from_rank >= comm.size or to_rank < 0 or to_rank >= comm.size:
+            raise ValueError(f"Invalid ranks: from_rank={from_rank}, to_rank={to_rank} for communicator size {comm.size}.")
+
+        mm_re = self.mm.get_mmesh(mesh_name)
 
         if rank == from_rank:
             etype, idx_loc = self.locate_elements_to_move(mm_re)
         else:
             etype, idx_loc = None, None
 
-        if rank == from_rank:
-            comm.send(etype, dest=to_rank, tag=BASE_TAG)
-        elif rank == to_rank:
-            etype = comm.recv(source=from_rank, tag=BASE_TAG)    
+        if rank == from_rank:         comm.send(etype, dest=to_rank    , tag=BASE_TAG)
+        elif rank == to_rank: etype = comm.recv(       source=from_rank, tag=BASE_TAG)    
         
-        if rank == from_rank:
-            comm.send(mm_re.eidxs      [etype][idx_loc], dest=to_rank, tag=BASE_TAG)
-            comm.send(mm_re.eles       [etype][idx_loc], dest=to_rank, tag=BASE_TAG)
-            comm.send(mm_re.spts       [etype][idx_loc], dest=to_rank, tag=BASE_TAG)
-            comm.send(mm_re.spts_curved[etype][idx_loc], dest=to_rank, tag=BASE_TAG)
-            comm.send(mm_re.spts_nodes [etype][idx_loc], dest=to_rank, tag=BASE_TAG)
+        temp_mesh = mm_re.to_mesh()
 
-        elif rank == to_rank:
-            mm_re.eidxs      [etype] = comm.recv(source=from_rank, tag=BASE_TAG)      
-            mm_re.eles       [etype] = comm.recv(source=from_rank, tag=BASE_TAG)       
-            mm_re.spts       [etype] = comm.recv(source=from_rank, tag=BASE_TAG)       
-            mm_re.spts_curved[etype] = comm.recv(source=from_rank, tag=BASE_TAG)
-            mm_re.spts_nodes [etype] = comm.recv(source=from_rank, tag=BASE_TAG) 
+        if   rank == from_rank: comm.send(temp_mesh.eidxs      [etype][idx_loc], dest=to_rank, tag=BASE_TAG)
+        elif rank ==   to_rank: temp_mesh.eidxs      [etype] = comm.recv(source=from_rank, tag=BASE_TAG)      
+        if   rank == from_rank: temp_mesh.eidxs      [etype] = np.delete(temp_mesh.eidxs      [etype], idx_loc)
 
-        if rank == from_rank:
-            mm_re.eidxs      [etype] = np.delete(mm_re.eidxs      [etype], idx_loc)
-            mm_re.eles       [etype] = np.delete(mm_re.eles       [etype], idx_loc)
-            mm_re.spts       [etype] = np.delete(mm_re.spts       [etype], idx_loc)
-            mm_re.spts_curved[etype] = np.delete(mm_re.spts_curved[etype], idx_loc)
-            mm_re.spts_nodes [etype] = np.delete(mm_re.spts_nodes [etype], idx_loc)
+        # Also move soln
+        if rank == to_rank: soln = {etype: np.empty((8,5,0))}
 
-        self.mm.remove_mmesh(mesh_name)
-        self.mm.remove_mmesh(mesh_name+'_new')
-        self.mm.copy_mmesh(mesh_name+'_reinitialised', mesh_name, mm_re.eidxs)
-        self.mm.copy_mmesh(mesh_name, mesh_name+'_new')
-        print(self.mm, flush=True)  
+        if   rank == from_rank:               comm.send(soln[etype][:,:,idx_loc],   dest=  to_rank, tag=BASE_TAG)            
+        elif rank ==   to_rank: soln[etype] = comm.recv(                          source=from_rank, tag=BASE_TAG)
+        if   rank == from_rank: soln[etype] = np.delete(soln[etype], idx_loc, axis=2)
+
+        self.mm.copy_mmesh('base', f'{mesh_name}_temp', temp_mesh.eidxs)
+        return self.mm.get_mmesh(f'{mesh_name}_temp').to_mesh(), soln
 
     def locate_elements_to_move(self, mm_re: _MetaMesh) -> dict[str, np.ndarray]:
         etype, idx = self.locate_mpi_interface_element(mm_re)
-        return etype, np.array([int(np.where(mm_re.eidxs[etype] == idx)[0])])
+
+        #return etype, np.array([int(np.where(mm_re.eidxs[etype] == idx)[0])])
+
+        eidxs = mm_re.eidxs[etype]
+        idx_loc = int(np.where(eidxs == idx)[0])
+
+        sides = mm_re.eles[etype][idx_loc][-1]
+        side_elements = [int(e) for _,e in sides]
+
+        idx_locs = [idx_loc,]
+
+        for side_element in side_elements:
+            idx_loc_0 = np.where(eidxs == side_element)[0]
+
+            if len(idx_loc_0) == 0:
+                continue
+            
+            idx_locs.append(int(idx_loc_0[0]))
+        
+        return etype, np.array(idx_locs)
+
+
 
     def locate_mpi_interface_element(self, mmesh: _MetaMesh) -> tuple[str, np.ndarray]:
         """
@@ -900,24 +903,20 @@ class LoadRelocator():
         for i, nrank in enumerate(ordered_comm):
             for etype in mmesh.etypes:
                 nrank_conp = mmesh.gcon_p[nrank][etype]
-
-                for nnrank in ordered_comm[i+1:]:
-                    nnrank_conp = mmesh.gcon_p[nnrank][etype]
-                    idxs = np.intersect1d(nrank_conp, nnrank_conp)
-
-                    if idxs:
-                        return etype, idxs[0]
-
-            # Just take the last element we find in nrank_conp
-            if not idxs:
                 return etype, nrank_conp[0]
 
     @log_method_times
-    def diffuse_computation(self, mesh_name, target_nelems, cli = False):
+    def diffuse_computation(self, mesh_name, target_nelems, cli = False,
+                            move_priority = None):
         '''
             Iteratively diffuse elements until reaching target within each rank.
             This function is specific to 'compute' meta-mesh.
         '''
+
+        if move_priority == None:
+            self.move_priority = sorted(range(len(target_nelems)), reverse=True)
+        else:
+            self.move_priority = move_priority
 
         # Get MPI comm world for 'compute' mesh
         comm, rank, root = get_comm_rank_root('compute')
@@ -927,7 +926,7 @@ class LoadRelocator():
         self.mm.copy_mmesh(mesh_name, mesh_name+'_new')
 
         init_nelems     = self.mm.get_mmesh(mesh_name).nelems
-        previous_nelems = np.zeros(comm.size, dtype=int)
+        previous_nelems = np.ones(comm.size, dtype=int)
         curr_nelems  = np.array(comm.allgather(self.mm.get_mmesh(mesh_name).nelems))
         
         # Create a matrix that lets us decide whether or not to move elements across interface between i and j ranks
@@ -935,14 +934,16 @@ class LoadRelocator():
 
         # Create a movement-multiplier for elements movement
 
-        # If ccc is not equal to previous_nelems, then continue
-        for _ in range(comm.size**2):
-            if not np.array_equal(curr_nelems, previous_nelems):
-                # Then break
+        # If ccc is not equal to previous_nelems, and if even one of the targets is 0 and we haven't reached that yet
+        for i in range(len(target_nelems)**3 ):
+            if np.array_equal(curr_nelems, previous_nelems):
+                break
+
+            if np.any(target_nelems == 0) and np.any(curr_nelems == 0) and np.where(target_nelems == 0)[0][0] == np.where(curr_nelems == 0)[0][0]:
                 break
 
             target_nelems = self.freeze_ranks_and_update_targets(previous_nelems, curr_nelems, target_nelems)
-            previous_nelems = curr_nelems
+            previous_nelems = curr_nelems.copy()
 
             if rank == root:
                 print(f"Current nelems: {curr_nelems} \t New movements: {target_nelems - curr_nelems}", flush=True)
@@ -959,19 +960,13 @@ class LoadRelocator():
             self.movable_to_nrank = self.get_movable_to_nrank(self.mm.get_mmesh(mesh_name+'_new'))
 
             # Force-stop movement across some interfaces
-            self.movable_to_nrank = np.multiply(self.movable_to_nrank, 
-                                                self.if_move_along_interface)
-
-            #print(f"rank {rank}  \t "
-            #      f"Start: {self.mm.get_mmesh(mesh_name).nelems} "
-            #      f" \t Now: {self.mm.get_mmesh(mesh_name+'_new').nelems} --> \t ("
-            #      f" {t_nelems[rank] - self.mm.get_mmesh(mesh_name+'_new').nelems}"
-            #      f") --> \t {t_nelems[rank]}", flush=True)
+            self.movable_to_nrank = np.multiply(self.movable_to_nrank, self.if_move_along_interface)
 
             # Move elements
             move_elems = self.reloc_interface_elems(move_to_nrank, self.mm.get_mmesh(mesh_name+'_new'))
-            self.mm.copy_mmesh(mesh_name+'_new', mesh_name+'-temp', 
-                               self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new')))
+
+            preordered_eidxs = self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new'))
+            self.mm.copy_mmesh(mesh_name+'_new', mesh_name+'-temp', preordered_eidxs)
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_new')
 
             curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
@@ -980,12 +975,8 @@ class LoadRelocator():
 
         if not cli:
             # CLI only needs eidxs, if-curved and if-mpi.
-            self.mm.get_mmesh(mesh_name+'_new').spts = self.reloc(mesh_name, mesh_name+'_new', 
-                                               self.mm.get_mmesh(mesh_name).spts, 
-                                               edim=0)
-            self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', 
-                                               self.mm.get_mmesh(mesh_name).spts_curved, 
-                                               edim=0)
+            #self.mm.get_mmesh(mesh_name+'_new').spts        = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts,        edim=0)
+            self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts_curved, edim=0)
 
         # Re-create ary
         new_mesh = self.mm.get_mmesh(mesh_name+ '_new').to_mesh()
@@ -993,27 +984,73 @@ class LoadRelocator():
         print(self.mm, flush=True)
 
         self.new_ranks = [r for r in range(comm.size) if target_nelems[r] > 0]
+
+        if 1 in curr_nelems:
+            raise ValueError("Rank with 1 element!")
         
-        return new_mesh, 1
+        return new_mesh
 
-
-    def freeze_ranks_and_update_targets(self, gprev,  gcurr, gtarget):
-        """ For all ranks that did not change their elements, set freeze to 1.
-            Then, set target equal to curr.
-            Distribute left over elements to non-frozen ranks.
-            Make sure target sum of target is still same as curr
-            Return target.
+    def freeze_ranks_and_update_targets(self, gprev, gcurr, gtarget):
         """
+        For each rank, if the current element count did not change from the previous
+        count or if its target is 0, then that rank is frozen and its new target is fixed
+        (set to gcurr if frozen by no change, or to 0 if target==0). For non-frozen ranks,
+        the provisional target remains gtarget. Then, any difference between the total
+        current elements (sum(gcurr)) and the provisional sum is redistributed proportionally
+        among the non-frozen (nonzero-target) ranks so that the total new targets equal sum(gcurr).
         
-        frozen = np.array([p==c for p, c in zip(gprev, gcurr)], dtype=bool)
-        new_gtarget = np.where(frozen, gcurr, gtarget)
+        Parameters:
+            gprev : array_like
+                The previous element counts per rank.
+            gcurr : array_like
+                The current element counts per rank.
+            gtarget : array_like
+                The original target element counts per rank.
         
-        # Distribute left over elements to non-frozen ranks such that targets increase
+        Returns:
+            new_gtarget : ndarray
+                The updated targets per rank whose sum equals sum(gcurr).
+        """
 
-        sum_diff_frozen = np.sum(np.multiply(frozen, gtarget - gcurr))
-        non_frozen = np.multiply((1-frozen), gtarget)
-        print(f"Redistribution: {sum_diff_frozen*non_frozen / np.sum(non_frozen)}", flush=True)
-        new_gtarget += sum_diff_frozen*non_frozen / np.sum(non_frozen)
+        # Ensure all inputs are NumPy arrays
+        gprev   = np.asarray(gprev)
+        gcurr   = np.asarray(gcurr)
+        gtarget = np.asarray(gtarget)
+
+        # Create masks:
+        freeze_target = (gtarget == 0)            # Freeze any rank whose target is zero.
+
+        # Also freeze any rank that did not change and has more than 2 elements initially.
+        freeze_no_change = (gcurr == gprev)
+
+        frozen = freeze_target | freeze_no_change
+
+        # For frozen ranks, we want:
+        #   - If forced to zero (target==0), then new target becomes 0.
+        #   - Otherwise (no change), set new target equal to the current count.
+        # For non-frozen ranks, start with the given target.
+        new_gtarget = np.where(freeze_target, 0,
+                            np.where(freeze_no_change, gcurr, gtarget))
+
+        # If any rank is currently at 1 element, then add 100 to it and subtract 100 from rank 0
+        if np.any(gcurr == 1):
+            new_gtarget[0] -= 2
+            new_gtarget[np.where(gcurr == 1)[0][0]] += 2
+
+        # Compute the total difference between the current total and the provisional total.
+        total_new = np.sum(new_gtarget)
+        total_curr = np.sum(gcurr)
+        diff = total_curr - total_new
+
+        # Identify non-frozen ranks (those allowed to adjust) and compute the sum of their targets.
+        non_frozen_mask = ~frozen
+        denom = np.sum(gtarget[non_frozen_mask])
+        
+        # Only adjust if there is something to distribute.
+        if denom > 0:
+            # Distribute 'diff' proportionally to the original gtarget values among non-frozen ranks.
+            adjustment = diff * (gtarget[non_frozen_mask] / denom)
+            new_gtarget[non_frozen_mask] += adjustment
 
         return new_gtarget
 
@@ -1081,16 +1118,15 @@ class LoadRelocator():
                     move_elemsf = np.array([], dtype=np.int32)
                 else:
                     # Number of elements to move for this etype with nrank
-                    n_to_move = np.round(move_to_nrank[rank][nrank]).astype(int)
+                    n_to_move = np.ceil(move_to_nrank[rank][nrank]).astype(int)
                     # n_to_move = np.round(move_to_nrank[rank][nrank] * n_available / mesh.ncon_p).astype(int)
 
                     # Enforce Nₑ-to-move ≤ Nₑ-available-to-move
                     n_to_move = min(n_to_move, n_available)
 
                     if n_to_move in [1, 2]:
-                        # If only 1 or 2 elements needed to move
-                        # Move all elements 
                         move_elemsf = mesh.gcon_p[nrank][etype]
+
                     elif n_to_move == n_available:
                         # If elements to move > interface elements with nrank
                         # Move all elements 
@@ -1102,7 +1138,6 @@ class LoadRelocator():
                                                        replace=False)
 
                     move_elemsf = [intelem for intelem, move in zip(mesh.gcon_p[nrank][etype], move_elemsf) if move]
-
 
                     move_elemsf = np.array(move_elemsf, dtype=np.int32)
                     move_elemsf = np.sort(move_elemsf)
@@ -1341,19 +1376,27 @@ class MeshInterConnector(AlltoallMixin):
     def _invert_recreated_mesh(self):
         self.target.eles        = self.relocate(self.target.eles)
         self.target.spts_curved = self.relocate(self.target.spts_curved)
+        
+        self.target.spts        = self.relocate(self.target.spts)
 
     @log_method_times
     def _recreate_mesh_for_diffusion(self):
         self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
         self.target.spts_curved = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_curved)
+        
+        self.target.spts        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
 
     @log_method_times
     def _reorder_elements(self, mesh: _Mesh):
         new_target_eidxs = {etype: [] for etype in self.etypes}
 
         for etype in self.etypes:
-            ordered_idx = np.lexsort(( mesh.spts_curved[etype], 
-                                       mesh.spts_internal[etype])) 
+            if etype in mesh.spts_curved and etype in mesh.spts_internal:
+                ordered_idx = np.lexsort(( mesh.spts_curved[etype], 
+                                        mesh.spts_internal[etype])) 
+            else:
+                ordered_idx = []
+
             if len(ordered_idx) > 0:
                 new_target_eidxs[etype] = mesh.eidxs[etype][ordered_idx]
             else:

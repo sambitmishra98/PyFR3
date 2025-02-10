@@ -65,15 +65,14 @@ def reconstruct_by_diffusion(mesh, name, part_wts,
 
         load_relocator.curr_nelems = comm.allgather(
             load_relocator.mm.get_mmesh('diffuse').nelems)
-        t_nelems_byrank = [load_relocator.mm.gnelems*part_wt/
-                            sum(part_wts) for part_wt in part_wts]
+        t_nelems = load_relocator.firstguess_target_nelems(part_wts)
 
     #with progress.start('Initialise empty ranks'):
-    #    mesh = load_relocator.initialise_empty_rank('diffuse')
+    #    mesh = load_relocator.add_rank('diffuse')
 
     with progress.start('Start diffusion'):
-        print(f't_nelems_byrank: {t_nelems_byrank}')
-        mesh = load_relocator.diffuse_computation('diffuse', t_nelems_byrank,
+        print(f't_nelems_byrank: {t_nelems}')
+        mesh = load_relocator.diffuse_computation('diffuse', t_nelems,
                                                   cli=True)[0]
 
     # Group partition number and element idx from mesh of each rank

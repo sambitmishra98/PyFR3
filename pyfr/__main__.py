@@ -384,7 +384,7 @@ def process_partition_diffuse(args):
 
     # If running with n MPI ranks and mesh args.name has m partitions, then
     # create new comms with m ranks each
-    comm, rank, root = get_comm_rank_root('world')
+    comm, rank, root = get_comm_rank_root()
 
     etypes = []
     pwts   = []

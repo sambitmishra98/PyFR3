@@ -58,6 +58,21 @@ class OpenMPBackend(BaseBackend):
         # Pointwise kernels
         self.pointwise = self._providers[0]
 
+    def __call__(self):
+        super().__call__()
+
+        from pyfr.backends.openmp import (blasext, packing, provider, xsmm)
+
+        # Instantiate mandatory kernel provider classes
+        kprovcls = [provider.OpenMPPointwiseKernelProvider,
+                    blasext.OpenMPBlasExtKernels,
+                    packing.OpenMPPackingKernels,
+                    xsmm.OpenMPXSMMKernels]
+        self._providers = [k(self) for k in kprovcls]
+
+        # Pointwise kernels
+        self.pointwise = self._providers[0]
+
     def run_kernels(self, kernels, wait=False):
         for k in kernels:
             k.run()

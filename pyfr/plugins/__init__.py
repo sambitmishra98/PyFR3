@@ -16,6 +16,7 @@ from pyfr.plugins.source import SourcePlugin
 from pyfr.plugins.tavg import TavgCLIPlugin, TavgPlugin
 from pyfr.plugins.turbulence import TurbulencePlugin
 from pyfr.plugins.writer import WriterPlugin
+from pyfr.plugins.lblist import LblistPlugin
 from pyfr.util import subclass_where
 
 

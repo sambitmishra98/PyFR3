@@ -1,7 +1,7 @@
 import numpy as np
 
 from pyfr.inifile import Inifile
-from pyfr.mpiutil import get_comm_rank_root
+from pyfr.mpiutil import get_comm_rank_root, mpi
 from pyfr.plugins.base import (BaseSolnPlugin, LoadBalanceMixin,
                                PostactionMixin, RegionMixin)
 from pyfr.writers.native import NativeWriter
@@ -55,6 +55,7 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin,
 
         # Register our output times with the integrator
         intg.call_plugin_dt(self.dt_out)
+        intg.called_plugin_dt = True
 
         # If we're not restarting then make sure we write out the initial
         # solution when we are called for the first time
@@ -125,43 +126,46 @@ class WriterPlugin(PostactionMixin, RegionMixin, LoadBalanceMixin,
         return data
 
     def __call__(self, intg):
+        comm, rank, root = get_comm_rank_root()
+
         self._writer.probe()
 
         if intg.tcurr - self.tout_last < self.dt_out - self.tol:
             return
 
-        if hasattr(intg, 'load_relocator'):
-            if self.partition == 'balanced':
-                intg.load_relocator.mm.connect_mmeshes('plugins_new', 
-                                                       'compute_new',
-                                                       overwrite=True)
-            elif self.partition == 'base':
-                intg.load_relocator.mm.connect_mmeshes('base', 
-                                                       'compute_new',
-                                                       overwrite=True)
-            elif self.partition == 'compute':
-                # Re-tally ecounts for new compute-mesh
-                self._writer._ecounts = {etype: len(
-                        self.mesh.eidxs.get(etype, [])
-                        ) for etype in self.mesh.etypes}
+        if comm != mpi.COMM_NULL:
+            if hasattr(intg, 'load_relocator'):
+                if self.partition == 'balanced':
+                    intg.load_relocator.mm.connect_mmeshes('plugins_new', 
+                                                        'compute_new',
+                                                        overwrite=True)
+                elif self.partition == 'base':
+                    intg.load_relocator.mm.connect_mmeshes('base', 
+                                                        'compute_new',
+                                                        overwrite=True)
+                elif self.partition == 'compute':
+                    # Re-tally ecounts for new compute-mesh
+                    self._writer._ecounts = {etype: len(
+                            self.mesh.eidxs.get(etype, [])
+                            ) for etype in self.mesh.etypes}
 
-                self.redo_ele_region_data(intg)
-                ershapes = {etype: (self._nvars, self._emap[etype].nupts) 
-                                    for etype in self._ele_region_data}
-                self._writer.set_shapes_eidxs(ershapes, self._ele_region_data)
+                    self.redo_ele_region_data(intg)
+                    ershapes = {etype: (self._nvars, self._emap[etype].nupts) 
+                                        for etype in self._ele_region_data}
+                    self._writer.set_shapes_eidxs(ershapes, self._ele_region_data)
 
-        # Prepare the data and metadata
-        data = self._prepare_data(intg)
-        metadata = self._prepare_metadata(intg)
+            # Prepare the data and metadata
+            data = self._prepare_data(intg)
+            metadata = self._prepare_metadata(intg)
 
-        # Prepare a callback to kick off any postactions
-        callback = lambda fname, t=intg.tcurr: self._invoke_postaction(
-            intg=intg, mesh=self.mesh.fname, soln=fname, t=t
-        )
+            # Prepare a callback to kick off any postactions
+            callback = lambda fname, t=intg.tcurr: self._invoke_postaction(
+                intg=intg, mesh=self.mesh.fname, soln=fname, t=t
+            )
 
-        # Write out the file
-        self._writer.write(data, intg.tcurr, metadata, self._async_timeout,
-                           callback)
+            # Write out the file
+            self._writer.write(data, intg.tcurr, metadata, self._async_timeout,
+                            callback)
 
         # Update the last output time
         self.tout_last = intg.tcurr

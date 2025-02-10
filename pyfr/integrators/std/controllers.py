@@ -4,8 +4,9 @@ import math
 import numpy as np
 
 from pyfr.integrators.std.base import BaseStdIntegrator
-from pyfr.mpiutil import get_comm_rank_root, mpi
+from pyfr.mpiutil import append_comm_rank_root, get_comm_rank_root, mpi
 
+from pyfr.loadrelocator import LoadRelocator
 
 class BaseStdController(BaseStdIntegrator):
     def __init__(self, *args, **kwargs):
@@ -46,6 +47,20 @@ class BaseStdController(BaseStdIntegrator):
         # Clear the step info
         self.stepinfo = []
 
+    def _accept_step_empty_rank(self, dt, idxcurr, err=None):
+        self.tcurr += dt
+        self.nacptsteps += 1
+        self.nacptchain += 1
+        self.stepinfo.append((dt, 'accept', err))
+
+        self._idxcurr = idxcurr
+
+        # Run any plugins
+        self._run_plugins()
+
+        # Clear the step info
+        self.stepinfo = []
+
     def _reject_step(self, dt, idxold, err=None):
         if dt <= self.dtmin:
             raise RuntimeError('Minimum sized time step rejected')
@@ -66,6 +81,8 @@ class StdNoneController(BaseStdController):
         return False
 
     def advance_to(self, t):
+        base_comm, base_rank, base_root = get_comm_rank_root('base')
+        compute_comm, compute_rank, compute_root = get_comm_rank_root('compute')
 
         if t < self.tcurr:
             raise ValueError('Advance time is in the past')
@@ -74,95 +91,132 @@ class StdNoneController(BaseStdController):
             # Decide on the time step
             self.adjust_dt(t)
 
-            # Take the step
-            idxcurr = self.step(self.tcurr, self.dt)
+            if compute_comm != mpi.COMM_NULL:
 
-            # We are not adaptive, so accept every step
-            self._accept_step(self.dt, idxcurr)
+                # Take the step
+                idxcurr = self.step(self.tcurr, self.dt)
+
+                # We are not adaptive, so accept every step
+                self._accept_step(self.dt, idxcurr)
+
+            # Get idxcurr from root rank to rest
+            idxcurr = base_comm.bcast(self._idxcurr, root=base_root)
+
+            if compute_comm == mpi.COMM_NULL:
+                self._accept_step_empty_rank(self.dt, idxcurr)
+
+            base_comm.barrier()
 
             # Collect and store data in operable format
             if self.cfg.getbool('mesh', 'collect-statistics', False):
 
-                if not (self.tcurr in self.tlist):
-                    self.optimiser.collect_data()
+                if not self.tcurr in self.tlist:
+                    if compute_comm != mpi.COMM_NULL:
+                        self.optimiser.collect_data()
                 else:
-                    comm, rank, root = get_comm_rank_root()
-                    self.optimiser.process_statistics()
-                    weights = comm.allgather(self.optimiser.median_weight)
 
-#                    if not self.cfg.getbool('mesh', 'enable-relocator', False):
-#                        self.optimiser.windows +=1
-#
-#                    elif self.optimiser.latest_performance > self.optimiser.best_performance:
-#
-#                        # Update the best performance
-#                        self.optimiser.best_performance = self.optimiser.latest_performance
-#                        self.optimiser.best_weight = self.optimiser.latest_weight
-#
-#                        # Continue to load-balance with new weights
-#                        weights = comm.allgather(self.optimiser.median_weight)
-#                    else:
-#                        # Revert to best_performance weights with a larger window
-#                        #   elements distribution different from last time, 
-#                        #       so we can check performance replicability
-#                        weights = comm.allgather(self.optimiser.best_weight)
-#                        self.optimiser.windows +=1
+                    if compute_comm != mpi.COMM_NULL:
+                        self.optimiser.process_statistics()
+                        weights = self.optimiser.median_weight
+                    else:
+                        if self.optimiser.n_tlist_rank_add is not None:
+                            if self.tcurr == self.tlist[self.optimiser.n_tlist_rank_add]:
+                                weights = -1
+                            else:
+                                weights = None
+                            
+                    weights = [w for w in base_comm.allgather(weights) if w is not None]
 
-                    # Decide on whether the latest weights worked better than the weights we get right now.
-                    # This means from the mean other-time we got ...
-                    #   remove out plugin time hidden in accept-steps
-                    #   remove out time spent load balancing too.
-                    #   remove out time spent in reinitialisation
-                    #   remove out time spent in collecting data
+                    # If weights is -1 anywhere, then reset it to the value left of it
+                    if -1 in weights:
+                        for i, w in enumerate(weights):
+                            if w == -1:
+                                weights[i] = weights[i-1]
 
-                    if self.cfg.getbool('mesh', 'enable-relocator', False) and \
-                       self.cfg.getbool('mesh', 'relocate-compute', False):
-                        comm.barrier()
+                    if self.cfg.getbool('mesh', 'enable-relocator', False) and self.cfg.getbool('mesh', 'relocate-compute', False):
+
+                        # REMOVE RANK OR NOT ?????
+                        # HERE !!!!
+                        if self.optimiser.n_tlist_rank_remove is not None:
+                            if self.tcurr == self.tlist[self.optimiser.n_tlist_rank_remove]:
+                                weights[-1] = 0
 
                         # Calculate target elements based on weights
-                        t_nelems = self.load_relocator.firstguess_target_nelems(
-                                                                            weights)
+                        t_nelems = self.load_relocator.firstguess_target_nelems(weights)
 
-                        mesh, iters = self.load_relocator.diffuse_computation(
-                                                                'compute', t_nelems)
-                        gc.collect()
-                        comm.barrier()
+                        # If t_nelems length is 3 but compute_comm is null, then we need to add in a rank
+                        if len(t_nelems) == 3:
 
-                        # if nelems_diff is list(zeros), don't do anything
-                        new_ranks = self.load_relocator.new_ranks
-                        if iters > 0:
-                            comm.barrier()
-                            # Reinitialize the system with the new mesh and solution
-                            soln = self.load_relocator.reloc(
-                                'compute', 'compute_new',
-                                {m:s for m,s in zip(self.load_relocator.mm.etypes, 
-                                                    self.soln)}, edim=2).values()
+                            if self.optimiser.n_tlist_rank_add is not None:
+                                if compute_comm == mpi.COMM_NULL and self.tcurr == self.tlist[self.optimiser.n_tlist_rank_add]: 
+                                    adding_rank = 1
+                                else:
+                                    adding_rank = 0
+                            else:                                                               
+                                adding_rank = 0
 
-                            if len(new_ranks) == comm.size:
-                                ranks_map = {i:i for i in range(comm.size)}
-                            else:
-                                comm, ranks_map = mpi.update_comm(new_ranks)
+                            adding_rank = base_comm.allgather(adding_rank)
 
-                            self.load_relocator.mm.update_mmesh_comm('compute_new',
-                                                                comm, ranks_map)
+                        else:
+                            adding_rank = [0, 0]
 
-                            # Reinitialize backend with the new communicator
+
+                        soln_dict = {m:s for m,s in zip(self.load_relocator.mm.etypes, self.soln)}
+ 
+                        # If even one of them is 1, then we need to add in a rank
+                        if 1 in adding_rank:
+                            temp_compute_comm, temp_compute_ranks_map = mpi.update_comm([i for i, _ in enumerate(t_nelems)])
+                            append_comm_rank_root('compute', temp_compute_comm, temp_compute_comm.rank, 0, None)
+
+                            self.load_relocator.mm.update_mmesh_comm('compute'    , temp_compute_comm, temp_compute_ranks_map)
+                            self.load_relocator.mm.update_mmesh_comm('compute_new', temp_compute_comm, temp_compute_ranks_map)
+                            
+                            temp_mesh, soln_dict = self.load_relocator.add_rank('compute_new', soln_dict, from_rank = 0, to_rank = 2)
+
+                            self.load_relocator = LoadRelocator(temp_mesh)
+
+                            mesh = self.load_relocator.mm.get_mmesh('compute').to_mesh()
+
+                        if compute_comm != mpi.COMM_NULL or 1 in adding_rank:
+
+                            print("TARGET NELEMS", t_nelems, flush=True)
+
+                            mesh = self.load_relocator.diffuse_computation('compute', t_nelems)
+
+                            print(f"{compute_rank} Diffusion completed", flush=True)
+                            soln_dict = self.load_relocator.reloc('compute', 'compute_new', soln_dict, edim=2)
+
+                        self.load_relocator.mm.move_mmesh('compute_new', 'compute')
+                        self.load_relocator.mm.copy_mmesh('compute', 'compute_new')
+
+                        compute_comm, compute_ranks_map = mpi.update_comm([i for i, w in enumerate(t_nelems) if w > 0])
+                        self.load_relocator.mm.update_mmesh_comm('compute', compute_comm, compute_ranks_map)
+                        self.load_relocator.mm.update_mmesh_comm('compute_new', compute_comm, compute_ranks_map)
+
+                        if compute_comm == mpi.COMM_NULL: compute_rank, compute_root = None, None
+                        else:                             compute_rank, compute_root = compute_comm.rank, 0
+                        
+                        append_comm_rank_root('compute', compute_comm, compute_rank, compute_root, None)
+
+                        if compute_comm != mpi.COMM_NULL:
                             self.backend()
-                            self.system = self._systemcls(self.backend, mesh, 
-                                                        list(soln), 
-                                                        nregs=self.nregs, 
-                                                        cfg=self.cfg)
+                            self.system = self._systemcls(self.backend, mesh, list(soln_dict.values()), nregs=self.nregs, cfg=self.cfg)
+                            self._reget_plugins()
                             self.system.commit()
                             self.system.preproc(self.tcurr, self._idxcurr)
                             # Delete all memoized cache attributes
                             for attr in dir(self):
                                 if attr.startswith('_memoize_cache@'):
                                     delattr(self, attr) 
-                            gc.collect()
-                            comm.barrier()
+    
+                        gc.collect()
 
-                if (self.tcurr in self.tlist):
+                        if base_comm != mpi.COMM_NULL:
+                            base_comm.barrier()
+
+                if self.tcurr in self.tlist:
                     self.optimiser.empty_stats()
+                    print(f"{compute_rank} is alive", flush=True)
 
 
 class StdPIController(BaseStdController):

@@ -31,6 +31,7 @@ def init_mpi():
 
     comm = MPI.COMM_WORLD
     comm_rank_roots['world'] = (comm, comm.rank, 0, None)
+    comm_rank_roots['base'] = (comm, comm.rank, 0, None)
     comm_rank_roots['compute'] = (comm, comm.rank, 0, None)
     comm_rank_roots['reader'] = (comm, comm.rank, 0, None)
 
@@ -83,7 +84,7 @@ def autofree(obj):
 def get_comm_rank_root(comm_name=None, include_all=False):
     global comm_rank_roots
 
-    comm_rank_root = comm_rank_roots.get(comm_name, comm_rank_roots['world'])
+    comm_rank_root = comm_rank_roots.get(comm_name, comm_rank_roots['compute'])
     if include_all:
         return comm_rank_root
     else:
@@ -447,6 +448,38 @@ class Sorter(AlltoallMixin):
 
 
 class _MPI:
+    def update_comm(self, new_ranks):
+        """
+        Splits MPI.COMM_WORLD to create a new communicator consisting only
+        of the ranks in `new_ranks`. Returns a tuple (new_comm, rank_mapping),
+        where new_comm is the new communicator (or MPI.COMM_NULL for ranks not
+        in new_ranks) and rank_mapping is a dict mapping every world rank to
+        its new rank (or None if not included).
+        """
+
+        from mpi4py import MPI
+        world_comm = MPI.COMM_WORLD
+        rank = world_comm.Get_rank()
+        size = world_comm.Get_size()
+        
+        if rank in new_ranks:
+            # Ranks in new_ranks get color=0 and a key equal to their index in new_ranks
+            color = 0
+            key = new_ranks.index(rank)
+        else:
+            color = MPI.UNDEFINED
+            key = MPI.UNDEFINED
+        
+        new_comm = world_comm.Split(color, key)
+        
+        # Create a mapping from each old rank to the new rank (if present)
+        rank_mapping = {
+            old_rank: new_ranks.index(old_rank) if old_rank in new_ranks else None
+            for old_rank in range(size)
+        }
+        
+        return new_comm, rank_mapping
+
     def __getattr__(self, attr):
         from mpi4py import MPI
 
