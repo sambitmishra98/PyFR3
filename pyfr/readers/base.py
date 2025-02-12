@@ -132,7 +132,7 @@ class NodalMeshAssembler:
         # Round off to 1e-10
         fpts = np.round(fpts, 3)
 
-        self._prismcutfreq = 20
+        self._prismcutfreq = 1000000
 
         for vertex_id in range(fpts.shape[0]):
             for col in range(fpts.shape[2]):

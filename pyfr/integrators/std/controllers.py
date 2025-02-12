@@ -1,8 +1,11 @@
 import gc
 import math
+from pprint import pprint
+from time import perf_counter
 
 import numpy as np
 
+from pyfr.backends import get_backend
 from pyfr.integrators.std.base import BaseStdIntegrator
 from pyfr.mpiutil import append_comm_rank_root, get_comm_rank_root, mpi
 
@@ -76,6 +79,8 @@ class StdNoneController(BaseStdController):
     controller_name = 'none'
     controller_has_variable_dt = False
 
+    lb_tend = perf_counter()
+
     @property
     def controller_needs_errest(self):
         return False
@@ -114,6 +119,10 @@ class StdNoneController(BaseStdController):
                     if compute_comm != mpi.COMM_NULL:
                         self.optimiser.collect_data()
                 else:
+                    if base_comm != mpi.COMM_NULL:
+                        base_comm.barrier()
+                        if base_rank == base_root:
+                            lb_tstart = perf_counter()
 
                     if compute_comm != mpi.COMM_NULL:
                         self.optimiser.process_statistics()
@@ -199,7 +208,11 @@ class StdNoneController(BaseStdController):
                         append_comm_rank_root('compute', compute_comm, compute_rank, compute_root, None)
 
                         if compute_comm != mpi.COMM_NULL:
+                            
+                            #be_name = self.backend.name
+                            #self.backend = get_backend(be_name, self.cfg)
                             self.backend()
+
                             self.system = self._systemcls(self.backend, mesh, list(soln_dict.values()), nregs=self.nregs, cfg=self.cfg)
                             self._reget_plugins()
                             self.system.commit()
@@ -211,8 +224,14 @@ class StdNoneController(BaseStdController):
     
                         gc.collect()
 
-                        if base_comm != mpi.COMM_NULL:
-                            base_comm.barrier()
+                    if base_comm != mpi.COMM_NULL:
+                        base_comm.barrier()
+
+                        if base_rank == base_root:
+                            lb_start_diff_end = lb_tstart - self.lb_tend
+                            self.lb_tend = perf_counter()
+                            lb_end_diff_start = self.lb_tend - lb_tstart
+                            print(f"\n----------------\nWall-times for non-loadbalance and load-balance respectively = \n{lb_start_diff_end}\n{lb_end_diff_start}", flush=True)
 
                 if self.tcurr in self.tlist:
                     self.optimiser.empty_stats()

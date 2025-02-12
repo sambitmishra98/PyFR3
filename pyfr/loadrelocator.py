@@ -18,7 +18,7 @@ BASE_TAG = 47
 np.random.seed(BASE_TAG)
 LOG_LEVEL=40
 
-from pyfr.logger_utils import initialise_logger, log_method_times
+from pyfr.logger_utils import log_method_times
 
 @dataclass
 class _MetaMesh(_Mesh):
@@ -509,7 +509,7 @@ class _MetaMeshes:
         if if_base:
 
             # Initialise logger
-            self._logger = initialise_logger(__name__, LOG_LEVEL)
+            # self._logger = initialise_logger(__name__, LOG_LEVEL)
 
             comm, rank, root = get_comm_rank_root()
 
@@ -574,12 +574,12 @@ class _MetaMeshes:
         # Delete all src --> dest connections
         for mesh_name, mmesh in self.mmeshes.items():
             if src_name in mmesh.interconnector:
-                self._logger.info(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
+                #self._logger.info(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
                 del mmesh.interconnector[src_name]
 
         # Delete all dest --> src connections
         if dest_name in self.mmeshes[src_name].interconnector:
-            self._logger.info(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
+            #self._logger.info(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
             del self.mmeshes[src_name].interconnector[dest_name]
 
         self.mmeshes[dest_name] = self.mmeshes[src_name]
@@ -639,8 +639,8 @@ class _MetaMeshes:
             print(f"Available mmeshes: {list(self.mmeshes.keys())}")
             raise ValueError(f"{src_name} not yet recreated! ")
 
-        if not dest_mmesh.recreated:
-            self._logger.warning(f"{dest_name} not yet recreated! ")
+        #if not dest_mmesh.recreated:
+            #self._logger.warning(f"{dest_name} not yet recreated! ")
 
         # If connection already exists, then error
         if dest_name in src_mmesh.interconnector and not overwrite:
@@ -767,7 +767,7 @@ class LoadRelocator():
     def __init__(self, base_mesh: _Mesh, *,
                  bmmesh = 'base', cmmesh = 'compute', cnmmesh = 'compute_new'):
 
-        self._logger = initialise_logger(__name__, LOG_LEVEL)
+        #self._logger = initialise_logger(__name__, LOG_LEVEL)
 
         self.mm = _MetaMeshes()
         self.mm.add_mmesh(bmmesh, _MetaMesh.from_mesh(base_mesh), if_base=True)
@@ -841,7 +841,7 @@ class LoadRelocator():
         mm_re = self.mm.get_mmesh(mesh_name)
 
         if rank == from_rank:
-            etype, idx_loc = self.locate_elements_to_move(mm_re)
+            etype, idx_loc = self.locate_nearinterface_elements_to_move(mm_re)
         else:
             etype, idx_loc = None, None
 
@@ -864,10 +864,8 @@ class LoadRelocator():
         self.mm.copy_mmesh('base', f'{mesh_name}_temp', temp_mesh.eidxs)
         return self.mm.get_mmesh(f'{mesh_name}_temp').to_mesh(), soln
 
-    def locate_elements_to_move(self, mm_re: _MetaMesh) -> dict[str, np.ndarray]:
-        etype, idx = self.locate_mpi_interface_element(mm_re)
-
-        #return etype, np.array([int(np.where(mm_re.eidxs[etype] == idx)[0])])
+    def locate_nearinterface_elements_to_move(self, mm_re: _MetaMesh) -> dict[str, np.ndarray]:
+        etype, idx = self.locate_mpi_element(mm_re)
 
         eidxs = mm_re.eidxs[etype]
         idx_loc = int(np.where(eidxs == idx)[0])
@@ -887,9 +885,7 @@ class LoadRelocator():
         
         return etype, np.array(idx_locs)
 
-
-
-    def locate_mpi_interface_element(self, mmesh: _MetaMesh) -> tuple[str, np.ndarray]:
+    def locate_mpi_element(self, mmesh: _MetaMesh) -> tuple[str, np.ndarray]:
         """
         Locate a seed element for the re-initialization of a rank.
         Element choises:
@@ -900,12 +896,189 @@ class LoadRelocator():
                                 key=lambda x: mmesh.ncon_p_nrank[x], 
                                 reverse=True)
 
-        for i, nrank in enumerate(ordered_comm):
+        for nrank in ordered_comm:
             for etype in mmesh.etypes:
                 nrank_conp = mmesh.gcon_p[nrank][etype]
                 return etype, nrank_conp[0]
 
-    @log_method_times
+    def locate_internal_element_per_etype(self, mesh: _MetaMesh, etype: str, choice: str = 'first'):
+        """
+        Generator function that yields indices for an element type from the mesh.
+        
+        If the mesh has a nonempty spts_internal[etype] array, then use it to yield all indices
+        where the internal flag is True. Otherwise, ignore spts_internal and yield a single index 
+        from mesh.eidxs[etype] based on the 'choice' parameter.
+        
+        Parameters:
+        mesh (_MetaMesh): The mesh object containing at least the 'etypes' and 'eidxs' attributes.
+        etype (str): The element type to process.
+        choice (str): Either 'first' or 'last'. If spts_internal is missing or empty,
+                        yield the index at the start ('first') or end ('last') of mesh.eidxs[etype].
+                        
+        Yields:
+        int: An index into mesh.eidxs[etype].
+        
+        Raises:
+        ValueError: If no elements are available for the given etype or if choice is not 'first' or 'last'.
+        """
+        # If spts_internal exists and is nonempty for this etype, use it.
+        if etype in mesh.spts_internal and mesh.spts_internal[etype].size > 0:
+            internal_mask = mesh.spts_internal[etype]
+            indices = np.where(internal_mask)[0]
+            if indices.size > 0:
+                for idx in indices:
+                    yield idx
+            else:
+                # spts_internal exists but has no True entries; fallback to eidxs.
+                if len(mesh.eidxs[etype]) == 0:
+                    raise ValueError(f"No elements available for etype '{etype}'")
+                if choice == 'first':
+                    yield 0
+                elif choice == 'last':
+                    yield len(mesh.eidxs[etype]) - 1
+                else:
+                    raise ValueError("choice must be 'first' or 'last'")
+        else:
+            # spts_internal missing or empty; use the eidxs order.
+            if len(mesh.eidxs[etype]) == 0:
+                raise ValueError(f"No elements available for etype '{etype}'")
+            if choice == 'first':
+                yield 0
+            elif choice == 'last':
+                yield len(mesh.eidxs[etype]) - 1
+            else:
+                raise ValueError("choice must be 'first' or 'last'")
+
+
+    def add_etype_to_rank(self, mesh_name, etype, from_rank, to_rank):
+        """
+        Ensure that the receiver (to_rank) ends up with at least 2 elements of type `etype`
+        by moving one internal element from donor (from_rank). Raises an exception if the donor
+        does not have more than 2 elements.
+        
+        Parameters:
+          mesh_name (str): name of the mesh to modify.
+          etype (str): element type (default 'hex')
+          from_rank (int): rank that donates an element.
+          to_rank (int): rank that needs an extra element.
+          
+        Returns:
+          The updated mesh (an instance of _Mesh) after the move.
+          
+        Raises:
+          ValueError if the donor rank does not have >2 elements or no suitable internal
+          element can be found.
+        """
+        comm, rank, root = get_comm_rank_root('compute')
+        mm_re = self.mm.get_mmesh(mesh_name)
+        
+        # Broadcast the donor and receiver counts.
+        donor_count = len(mm_re.eidxs[etype]) if rank == from_rank else None
+        donor_count = comm.bcast(donor_count, root=from_rank)
+        
+        receiver_count = len(mm_re.eidxs[etype]) if rank == to_rank else None
+        receiver_count = comm.bcast(receiver_count, root=to_rank)
+        
+        # If receiver already has at least 2 elements, nothing to do.
+        if receiver_count >= 2:
+            return mm_re.to_mesh()
+        
+        # Donor must have more than 2 elements in order to give one away.
+        if donor_count <= 2:
+            raise ValueError(f"Donor rank {from_rank} has only {donor_count} elements of type {etype} (need >2).")
+        
+        # Now, donor chooses an internal element to send.
+        if rank == from_rank:
+            # Use our generator to get the first internal element index.
+            gen = self.locate_internal_element_per_etype(mm_re, etype)
+            selected_idx = None
+            for idx in gen:
+                # Only remove if after removal the donor would still have at least 2.
+                if donor_count - 1 >= 2:
+                    selected_idx = idx
+                    break
+            if selected_idx is None:
+                raise ValueError(f"No suitable internal element found on donor rank {from_rank} for type {etype}.")
+            # Grab the element data (e.g. its global index)
+            element_data = mm_re.eidxs[etype][selected_idx]
+            # Send the element data to the receiver.
+            comm.send(element_data, dest=to_rank, tag=BASE_TAG)
+            # Remove the element from the donor's list.
+            mm_re.eidxs[etype] = np.delete(mm_re.eidxs[etype], selected_idx)
+        elif rank == to_rank:
+            # Receiver obtains the element from the donor.
+            received_element = comm.recv(source=from_rank, tag=BASE_TAG)
+            # Append it to the current list.
+            mm_re.eidxs[etype] = np.concatenate([mm_re.eidxs[etype],
+                                                  np.array([received_element],
+                                                           dtype=mm_re.eidxs[etype].dtype)])
+        # Other ranks do nothing.
+        # Optionally, one could broadcast an update.
+        new_mesh = mm_re.to_mesh()
+        # Finally, check that the receiver now has at least 2.
+        #if rank == to_rank and len(new_mesh.eidxs[etype]) < 2:
+        #    raise ValueError(f"Receiver rank {to_rank} still has fewer than 2 elements of type {etype} after adding.")
+        return new_mesh
+
+    def ensure_nonzero_etype_on_all_ranks(self, mesh_name, init_elems=2):
+        """
+        Ensure all ranks with at least 2 elements per etype.
+        If not, move element from donor rank to deficient rank.
+        Move one internal element from the donor to deficient.
+        
+        Raises:
+          ValueError if for some element type no donor can supply extra elements.
+        
+        Returns:
+          The updated mesh (an instance of _Mesh) after all necessary moves.
+        """
+        comm, rank, root = get_comm_rank_root('compute')
+        mm = self.mm.get_mmesh(mesh_name)
+        
+        # Each rank computes its own counts per element type.
+        local_counts = {etype: len(mm.eidxs[etype]) for etype in mm.etypes}
+        # Gather counts from all ranks.
+        all_counts = comm.allgather(local_counts)
+        
+        # For each element type, check which ranks have fewer than 2 elements.
+        for etype in mm.etypes:
+            ranks_with_few = [r for r, counts in enumerate(all_counts) if counts.get(etype, 0) < init_elems]
+            donor_ranks = [r for r, counts in enumerate(all_counts) if counts.get(etype, 0) > comm.size**init_elems]
+
+            for r in ranks_with_few:
+                # (If the rank already has 2 or more then skip.)
+                if all_counts[r].get(etype, 0) >= init_elems:
+                    continue
+                if not donor_ranks:
+                    raise ValueError(f"No donor rank available for element type {etype} to supply missing elements.")
+                # For simplicity, choose the first donor.
+                donor = donor_ranks[0]
+                # Only try if donor != deficient rank.
+                if donor == r:
+                    continue
+                # Call add_etype_to_rank() so that rank r receives one extra element.
+                # (This call will update the mesh on donor and receiver.)
+                _ = self.add_etype_to_rank(mesh_name, etype=etype, from_rank=donor, to_rank=r)
+                _ = self.add_etype_to_rank(mesh_name, etype=etype, from_rank=donor, to_rank=r)
+                # Re-read the updated counts.
+                updated_count = len(self.mm.get_mmesh(mesh_name).eidxs[etype])
+                # Update our local copy for this rank.
+                all_counts[r][etype] = updated_count
+                #if updated_count < 2:
+                #    raise ValueError(f"After adding, rank {r} still has fewer than 2 elements for type {etype}.")
+        # Final check on every rank.
+        for etype in mm.etypes:
+            for r in range(comm.size):
+                if all_counts[r].get(etype, 0) < init_elems:
+                    raise ValueError(f"Rank {r} does not have at least {init_elems} elements of type {etype}.")
+
+        # Print mesh
+        print(self.mm, flush=True)
+
+        return self.mm.get_mmesh(mesh_name).to_mesh()
+
+
+    #@log_method_times
     def diffuse_computation(self, mesh_name, target_nelems, cli = False,
                             move_priority = None):
         '''
@@ -936,23 +1109,26 @@ class LoadRelocator():
 
         # If ccc is not equal to previous_nelems, and if even one of the targets is 0 and we haven't reached that yet
         for i in range(len(target_nelems)**3 ):
+            if rank == root:
+                print(f"Current nelems: {curr_nelems} \t New movements: {target_nelems - curr_nelems}", flush=True)
+           
             if np.array_equal(curr_nelems, previous_nelems):
                 break
 
             if np.any(target_nelems == 0) and np.any(curr_nelems == 0) and np.where(target_nelems == 0)[0][0] == np.where(curr_nelems == 0)[0][0]:
                 break
 
-            target_nelems = self.freeze_ranks_and_update_targets(previous_nelems, curr_nelems, target_nelems)
-            previous_nelems = curr_nelems.copy()
+            if np.any(target_nelems == 0) and np.any(curr_nelems != 0):
+                target_nelems = self.freeze_ranks_and_update_targets(previous_nelems, curr_nelems, target_nelems)
 
-            if rank == root:
-                print(f"Current nelems: {curr_nelems} \t New movements: {target_nelems - curr_nelems}", flush=True)
+            previous_nelems = curr_nelems.copy()
 
             nelems_diff = target_nelems - np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
 
             # If any rank moves < 1% initial t_nelems, set rows/columns in self.if_move_along_interface to 0
             for i, diff in enumerate(nelems_diff):
-                if abs(diff) < 0.01 * init_nelems:
+                #if abs(diff) < self.imbalance_allowance * init_nelems:
+                if abs(diff) < 0.001 * init_nelems:
                     self.if_move_along_interface[i, :] = 0
                     self.if_move_along_interface[:, i] = 0
 
@@ -960,7 +1136,8 @@ class LoadRelocator():
             self.movable_to_nrank = self.get_movable_to_nrank(self.mm.get_mmesh(mesh_name+'_new'))
 
             # Force-stop movement across some interfaces
-            self.movable_to_nrank = np.multiply(self.movable_to_nrank, self.if_move_along_interface)
+            for etype in self.movable_to_nrank:
+                self.movable_to_nrank[etype] = np.multiply(self.movable_to_nrank[etype], self.if_move_along_interface)
 
             # Move elements
             move_elems = self.reloc_interface_elems(move_to_nrank, self.mm.get_mmesh(mesh_name+'_new'))
@@ -973,10 +1150,10 @@ class LoadRelocator():
         
         self.mm.connect_mmeshes(mesh_name+'_new', mesh_name)
 
-        if not cli:
-            # CLI only needs eidxs, if-curved and if-mpi.
-            #self.mm.get_mmesh(mesh_name+'_new').spts        = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts,        edim=0)
-            self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts_curved, edim=0)
+        #if not cli:
+        #    # CLI only needs eidxs, if-curved and if-mpi.
+        #    self.mm.get_mmesh(mesh_name+'_new').spts        = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts,        edim=0)
+        #    self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts_curved, edim=0)
 
         # Re-create ary
         new_mesh = self.mm.get_mmesh(mesh_name+ '_new').to_mesh()
@@ -1084,36 +1261,119 @@ class LoadRelocator():
         return move_to_nrank
 
     def get_movable_to_nrank(self, mesh):
-
         comm, rank, root = get_comm_rank_root()
-
-        # Store available movable elements as a matrix 
-        movable_to_nrank = np.zeros((comm.size, comm.size))
-
+        movable_to_nrank = {etype: np.zeros((comm.size, comm.size)) for etype in self.mm.etypes}
         for nrank in mesh.con_p.keys():
             for etype in self.mm.etypes:
                 n_available = mesh.ncon_p_nrank_etype[nrank][etype]
-                movable_to_nrank[rank, nrank] = n_available
-                movable_to_nrank[nrank, rank] = n_available
-
+                movable_to_nrank[etype][rank, nrank] = n_available
+                movable_to_nrank[etype][nrank, rank] = n_available
         return movable_to_nrank
 
     def reloc_interface_elems(self, move_to_nrank: np.ndarray, mesh: _MetaMesh):
+    
+        comm, rank, root = get_comm_rank_root()
+    
+        # Initialise dictionary for the elements to be moved:
+        move_elems = {
+            int(nrank): {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes}
+            for nrank in mesh.con_p.keys()
+        }
+    
+        for nrank in mesh.con_p.keys():
+            # Compute the total available interfaces (Y_total) across all etypes for this neighbor:
+            total_available = sum(self.movable_to_nrank[etype][rank, nrank]
+                                  for etype in self.mm.etypes)
+            # X: total number of elements to move from rank to nrank.
+            X = move_to_nrank[rank][nrank]
+            for etype in self.mm.etypes:
+                # Available interface elements for this etype (Y_i)
+                available = self.movable_to_nrank[etype][rank, nrank]
+                if total_available > 0:
+                    # Distribute the total moves X proportionally:
+                    n_to_move = int(np.ceil(X * available / total_available))
+                else:
+                    n_to_move = 0
+    
+                # Ensure we do not try to move more than available:
+                n_to_move = min(n_to_move, available)
+                
+                if n_to_move == 0:
+                    move_elemsf = np.array([], dtype=np.int32)
+                else:
+                    # If we need to move as many as (or more than) available, take them all;
+                    # otherwise, choose n_to_move from the available interface elements.
+                    if n_to_move >= available:
+                        move_elemsf = mesh.gcon_p[nrank][etype]
+                    else:
+                        move_elemsf = np.random.choice(mesh.gcon_p[nrank][etype],
+                                                       size=n_to_move,
+                                                       replace=False)
+                    move_elemsf = np.array(move_elemsf, dtype=np.int32)
+                    move_elemsf = np.sort(move_elemsf)
+                    move_elemsf = np.unique(move_elemsf)
+                move_elems[nrank][etype] = move_elemsf
+    
+        # Make sure all ranks have an entry for each rank
+        move_elems_f = {nrank: move_elems[nrank] for nrank in sorted(move_elems.keys())}
+        for nrank in range(comm.size):
+            if nrank not in move_elems_f:
+                move_elems_f[nrank] = {etype: np.empty(0, dtype=np.int32)
+                                       for etype in self.mm.etypes}
+        # Remove duplicates if necessary:
+        rem_dups = self.remove_duplicate_movements(move_elems_f, mesh)
+        for nrank in range(comm.size):
+            if nrank not in rem_dups:
+                rem_dups[nrank] = {etype: np.empty(0, dtype=np.int32)
+                                   for etype in self.mm.etypes}
+        
+        # --- New logic: cancel movements that would reduce count below 2 ---
+        # For each element type on this rank, compute the total number to be moved out.
+        # If the current number minus the total to be moved is less than 2,
+        # then delete (i.e. set to empty) all movements for that element type.
+        for etype in self.mm.etypes:
+            current_count = len(mesh.eidxs[etype])
+            total_to_move = sum(len(rem_dups[nrank][etype]) for nrank in rem_dups)
+            if current_count - total_to_move < 2:
+                # Cancel all movements for this element type.
+                for nrank in rem_dups:
+                    rem_dups[nrank][etype] = np.empty(0, dtype=np.int32)
+        # -------------------------------------------------------------------
+
+        return rem_dups
+
+    def reloc_interface_elems2(self, move_to_nrank: np.ndarray, mesh: _MetaMesh):
 
         comm, rank, root = get_comm_rank_root()
 
-        # Break into loops
-        move_elems = {nrank: {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes} for nrank in mesh.con_p.keys()}
+        # Initialise dictionary for the elements to be moved:
+        move_elems = {
+            int(nrank): {etype: np.empty(0, dtype=np.int32) for etype in self.mm.etypes} 
+            for nrank in mesh.con_p.keys()
+            }
 
         for nrank in mesh.con_p.keys():
+
+            # Compute the total available interfaces (Y_total) across all etypes for this neighbor:
+            total_available = sum(self.movable_to_nrank[etype][rank, nrank]
+                              for etype in self.mm.etypes)
+
+            # X: total number of elements to move from rank to nrank
+            X = move_to_nrank[rank][nrank]
             for etype in self.mm.etypes:
-
-
-                #n_available = mesh.ncon_p_nrank_etype[nrank][etype]
-                # Instead of taking from mesh object, take from the matrix
-                n_available = self.movable_to_nrank[rank, nrank]
+                # Available interface elements for this etype (Y_i)
+                available = self.movable_to_nrank[etype][rank, nrank]
                 
-                if n_available == 0:
+                if total_available > 0:
+                    # Distribute the total moves X proportionally:
+                    n_to_move = int(np.ceil(X * available / total_available))
+                else:
+                    n_to_move = 0                
+
+                # Ensure we do not try to move more than available:
+                n_to_move = min(n_to_move, available)
+                
+                if n_to_move == 0:
                     # No rank interfaces, element movement impossible.
                     move_elemsf = np.array([], dtype=np.int32)
                 else:
@@ -1122,12 +1382,12 @@ class LoadRelocator():
                     # n_to_move = np.round(move_to_nrank[rank][nrank] * n_available / mesh.ncon_p).astype(int)
 
                     # Enforce Nₑ-to-move ≤ Nₑ-available-to-move
-                    n_to_move = min(n_to_move, n_available)
+                    n_to_move = min(n_to_move, available)
 
                     if n_to_move in [1, 2]:
                         move_elemsf = mesh.gcon_p[nrank][etype]
 
-                    elif n_to_move == n_available:
+                    elif n_to_move == available:
                         # If elements to move > interface elements with nrank
                         # Move all elements 
                         move_elemsf = mesh.gcon_p[nrank][etype]
@@ -1209,11 +1469,11 @@ class LoadRelocator():
 
 
             # Logg the number of elements moved to each rank, flattened 1D
-            self._logger.info(f"Duplicates removed: { temp }")
+            #self._logger.info(f"Duplicates removed: { temp }")
 
         return move_elems
     
-    @log_method_times
+    #@log_method_times
     def get_preordered_eidxs(self, 
                              move_to_nrank: dict[int, dict[str, np.ndarray]],
                              mesh: _MetaMesh) -> dict[str, np.ndarray[int]]:
@@ -1273,7 +1533,7 @@ class MeshInterConnector(AlltoallMixin):
     def __init__(self, mmesh: _MetaMesh, target: _MetaMesh = None):
 
         # Get loggers
-        self._logger = initialise_logger(__name__, LOG_LEVEL)
+        #self._logger = initialise_logger(__name__, LOG_LEVEL)
 
         self.comm = mmesh.comm
 
@@ -1317,8 +1577,8 @@ class MeshInterConnector(AlltoallMixin):
         new_copy._ridxs  = deepcopy(self. _ridxs)
 
         # Copy other attributes
-        if hasattr(self, '_logger'):
-            new_copy._logger = self._logger  # Share the same logger
+        #if hasattr(self, '_logger'):
+        #    new_copy._logger = #self._logger  # Share the same logger
 
         return new_copy
 
@@ -1352,7 +1612,7 @@ class MeshInterConnector(AlltoallMixin):
 
         return recv_elements
 
-    @log_method_times
+    #@log_method_times
     def recreate_reorder_recreate_mesh(self):
         self.target.interconnector[self.mmesh.mmesh_name].set_relocation_idxs()
 
@@ -1372,21 +1632,19 @@ class MeshInterConnector(AlltoallMixin):
 
         self._reconstruct_con_conp_bcon()
 
-    @log_method_times
+    #@log_method_times
     def _invert_recreated_mesh(self):
         self.target.eles        = self.relocate(self.target.eles)
         self.target.spts_curved = self.relocate(self.target.spts_curved)
-        
         self.target.spts        = self.relocate(self.target.spts)
 
-    @log_method_times
+    #@log_method_times
     def _recreate_mesh_for_diffusion(self):
         self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
         self.target.spts_curved = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_curved)
-        
         self.target.spts        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
 
-    @log_method_times
+    #@log_method_times
     def _reorder_elements(self, mesh: _Mesh):
         new_target_eidxs = {etype: [] for etype in self.etypes}
 
@@ -1404,7 +1662,7 @@ class MeshInterConnector(AlltoallMixin):
 
         mesh.eidxs = new_target_eidxs
 
-    @log_method_times
+    #@log_method_times
     def set_relocation_idxs(self):
         """
         Create 1D arrays of send and receive indices for the given element type.
@@ -1413,7 +1671,7 @@ class MeshInterConnector(AlltoallMixin):
         comm, rank, root = get_comm_rank_root()
 
         for etype in self.etypes:
-            self._logger.info(f"Mapping to mesh eidxs for {etype}")
+            #self._logger.info(f"Mapping to mesh eidxs for {etype}")
 
             from_mesh_eidxs = self.target_eidxs_gathered[etype][self.comm.rank]
             to_mesh_eidxs  = self. mmesh_eidxs_gathered[etype]
@@ -1484,8 +1742,9 @@ class MeshInterConnector(AlltoallMixin):
             
         return rary
 
-    @log_method_times
+    #@log_method_times
     def _reconstruct_con_conp_bcon(self):
+        comm, rank, root = get_comm_rank_root()
 
         mesh = self.target
         eles = self.target.eles
@@ -1548,10 +1807,11 @@ class MeshInterConnector(AlltoallMixin):
         for k, v in bcon.items():
             if v:
                 mesh.bcon[codec[k][3:]] = v
+            else:
+                del mesh.bcon[codec[k][3:]]
 
         # MPI connectivity
 
-        comm, rank, root = get_comm_rank_root()
 
         # Create a neighbourhood collective communicator
         ncomm = comm.Create_dist_graph_adjacent(self.neighbours,

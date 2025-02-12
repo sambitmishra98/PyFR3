@@ -20,6 +20,8 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         self.intg = intg
 
         self.nskip = 1 + intg.cfg.getint('backend', 'collect-wait-times-len', 10000)
+        self.output_files = intg.cfg.getbool('mesh', 'output-files', False)
+
         self.windows = 1
         self.K_p = intg.cfg.getfloat('mesh', 'lb-proportionality', 1.0)
 
@@ -54,13 +56,14 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         }
 
         # Initialise csv
-        comm, rank, root = get_comm_rank_root()
-        self.csv = f'perf-_{rank}.csv'
-        with open(self.csv, 'w') as f:
-            row = []
-            row.extend([k for k in self.status.keys()])
-            row.extend([f'{k}-mean,{k}-std,{k}-med' for k in self.stats.keys()])
-            f.write(','.join(row) + '\n')
+        if self.output_files:
+            comm, rank, root = get_comm_rank_root()
+            self.csv = f'perf-_{rank}.csv'
+            with open(self.csv, 'w') as f:
+                row = []
+                row.extend([k for k in self.status.keys()])
+                row.extend([f'{k}-mean,{k}-std,{k}-med' for k in self.stats.keys()])
+                f.write(','.join(row) + '\n')
 
     def collect_data(self):
         """
@@ -117,37 +120,39 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         self.stats |= self.others()
 
         # Write to csv
-        # ---------------------------------------------------------------------
-        with open(self.csv, 'a') as f:
-            row = []
-            row.extend([self.status['tcurr'], self.status['nfevals'],])
-            row.extend([x for y in self.stats.values() for x in y])
-            f.write(','.join(map(str, row)) + '\n')
+        if self.output_files:
 
-        # Print on a separate csv, wait and other and plugin times
-        with open(f'./waits/wait-{rank}.csv', 'w') as f:
-            # All list in one column
-            for i in range(len(self.stat_lists['Δwait'])):
-                f.write(f'{self.stat_lists["Δwait"][i]}\n')
-                
-        with open(f'./others/other-{rank}.csv', 'w') as f:
-            # All list in one column
-            for i in range(len(self.stat_lists['Δother'])):
-                f.write(f'{self.stat_lists["Δother"][i]}\n')
+            # ---------------------------------------------------------------------
+            with open(self.csv, 'a') as f:
+                row = []
+                row.extend([self.status['tcurr'], self.status['nfevals'],])
+                row.extend([x for y in self.stats.values() for x in y])
+                f.write(','.join(map(str, row)) + '\n')
 
-        # Write value of solver.tcurr to csv
-        with open(f'./weights/weight-{rank}.csv', 'a') as f:
-            # Just print weight
-            f.write(f'{int(self.stats["weight"][2])}\n')
+            # Print on a separate csv, wait and other and plugin times
+            with open(f'./waits/wait-{rank}.csv', 'w') as f:
+                # All list in one column
+                for i in range(len(self.stat_lists['Δwait'])):
+                    f.write(f'{self.stat_lists["Δwait"][i]}\n')
+                    
+            with open(f'./others/other-{rank}.csv', 'w') as f:
+                # All list in one column
+                for i in range(len(self.stat_lists['Δother'])):
+                    f.write(f'{self.stat_lists["Δother"][i]}\n')
 
-        # Write value of solver.tcurr to csv
-        with open(f'./statistics/statistics-{rank}.csv', 'a') as f:
-            row = [ str(self.Nₑ)]
-            row.extend([str(self.otherinverse)])
-            row.extend([str(int(x)) for x in self.gathered_Δd])
-            row.extend([str(x) for x in self.actual_times_overall])
-            f.write(','.join(row) + '\n')
-        # ---------------------------------------------------------------------
+            ## Write value of solver.tcurr to csv
+            with open(f'./weights/weight-{rank}.csv', 'a') as f:
+                # Just print weight
+                f.write(f'{int(self.stats["weight"][2])}\n')
+
+            # Write value of solver.tcurr to csv
+            with open(f'./statistics/statistics-{rank}.csv', 'a') as f:
+                row = [ str(self.Nₑ)]
+                row.extend([str(self.otherinverse)])
+                row.extend([str(int(x)) for x in self.gathered_Δd])
+                row.extend([str(x) for x in self.actual_times_overall])
+                f.write(','.join(row) + '\n')
+            # ---------------------------------------------------------------------
 
 
     def stats_from_list(self, data_list):
