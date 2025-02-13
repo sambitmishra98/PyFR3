@@ -92,11 +92,6 @@ class CUDABackend(BaseBackend):
     def __call__(self):
         super().__call__()
 
-        #from pyfr.backends.cuda.driver import CUDA
-
-        # Load and wrap CUDA
-        #self.cuda = CUDA()
-
         from pyfr.backends.cuda import (blasext, cublaslt, gimmik, packing,
                                         provider)
 
@@ -110,9 +105,6 @@ class CUDABackend(BaseBackend):
 
         # Pointwise kernels
         self.pointwise = self._providers[0]
-
-        # Create a stream to run kernels on
-        #self._stream = self.cuda.create_stream()
 
     def run_kernels(self, kernels, wait=False):
         # Submit the kernels to the CUDA stream

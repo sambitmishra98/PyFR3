@@ -1,3 +1,4 @@
+from pprint import pprint
 import numpy as np
 
 from pyfr.mpiutil import get_comm_rank_root, mpi
@@ -70,7 +71,7 @@ class IntegratorPerformanceObserver(IntegratorObserver):
             Collect all statistics per unit physical time step.
         """
 
-        n = self.intg._stepper_nfevals
+        n = self.intg.nacptsteps
         if n == self.nᵢ:
             return
 
@@ -96,21 +97,6 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         total_inst_rhs_otime = inst_rhs_otimes / self.stat_lists['Δn'][-1]
         self.stat_lists['Δother'       ].append(    total_inst_rhs_otime)
         self.stat_lists['Δotherinverse'].append(1 / total_inst_rhs_otime)
-
-        # Plugin time difference
-        #p_now, p_prev = self.intg._plugin_wtimes['common', None], self.pᵢ
-        #self.stat_lists['Δp'].append(p_now - p_prev)
-        #self.pᵢ = p_now
-
-        #self.stat_lists['Δp'].append(self.intg.plugin_diff)
-
-        # Load balancing time difference, if exists
-#        if hasattr(self.intg, 'lb_diff'):
-#            self.stat_lists['Δlb'].append(self.intg.lb_diff)
-
-        # Re-initialisation time difference, if load-blancing is enabled
-#        if hasattr(self.intg, 'reset_diff'):
-#            self.stat_lists['Δreset'].append(self.intg.reset_diff)
 
     def process_statistics(self):
 
@@ -146,12 +132,12 @@ class IntegratorPerformanceObserver(IntegratorObserver):
                 f.write(f'{int(self.stats["weight"][2])}\n')
 
             # Write value of solver.tcurr to csv
-            with open(f'./statistics/statistics-{rank}.csv', 'a') as f:
-                row = [ str(self.Nₑ)]
-                row.extend([str(self.otherinverse)])
-                row.extend([str(int(x)) for x in self.gathered_Δd])
-                row.extend([str(x) for x in self.actual_times_overall])
-                f.write(','.join(row) + '\n')
+            # with open(f'./statistics/statistics-{rank}.csv', 'a') as f:
+            #     row = [ str(self.Nₑ)]
+            #     row.extend([str(self.otherinverse)])
+            #     row.extend([str(int(x)) for x in self.gathered_Δd])
+            #     row.extend([str(x) for x in self.actual_times_overall])
+            #     f.write(','.join(row) + '\n')
             # ---------------------------------------------------------------------
 
 
@@ -230,12 +216,12 @@ class IntegratorPerformanceObserver(IntegratorObserver):
         cpd = np.array(comm.allgather(self.stat_lists[list_name])).sum(axis=0)
         return cpd.mean(), cpd.std()
 
-    @property
-    def actual_times_overall(self):
-        Δn_mean = self.stats_from_list(self.stat_lists['Δn'])[0]
-        global_Δd = self.intg._gndofs * Δn_mean
-        mean, std = self.allgather_stats_from_list('Δtotal')
-        return mean/global_Δd, std/global_Δd
+    # @property
+    # def actual_times_overall(self):
+    #     Δn_mean = self.stats_from_list(self.stat_lists['Δn'])[0]
+    #     global_Δd = self.intg.pseudointegrator.pintg._gndofs * Δn_mean
+    #     mean, std = self.allgather_stats_from_list('Δtotal')
+    #     return mean/global_Δd, std/global_Δd
 
     @property
     def lost_time(self):

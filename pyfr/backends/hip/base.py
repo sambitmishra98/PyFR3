@@ -85,6 +85,23 @@ class HIPBackend(BaseBackend):
         # Create a stream to run kernels on
         self._stream = self.hip.create_stream()
 
+    def __call__(self):
+        super().__call__()
+
+        from pyfr.backends.hip import (blasext, gimmik, packing, provider,
+                                       rocblas)
+
+        # Instantiate the base kernel providers
+        kprovs = [provider.HIPPointwiseKernelProvider,
+                  blasext.HIPBlasExtKernels,
+                  packing.HIPPackingKernels,
+                  gimmik.HIPGiMMiKKernels,
+                  rocblas.HIPRocBLASKernels]
+        self._providers = [k(self) for k in kprovs]
+
+        # Pointwise kernels
+        self.pointwise = self._providers[0]
+
     def run_kernels(self, kernels, wait=False):
         # Submit the kernels to the HIP stream
         for k in kernels:

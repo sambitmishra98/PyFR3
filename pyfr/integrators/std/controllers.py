@@ -110,8 +110,6 @@ class StdNoneController(BaseStdController):
             if compute_comm == mpi.COMM_NULL:
                 self._accept_step_empty_rank(self.dt, idxcurr)
 
-            base_comm.barrier()
-
             # Collect and store data in operable format
             if self.cfg.getbool('mesh', 'collect-statistics', False):
 
@@ -119,6 +117,7 @@ class StdNoneController(BaseStdController):
                     if compute_comm != mpi.COMM_NULL:
                         self.optimiser.collect_data()
                 else:
+                    base_comm.barrier()
                     if base_comm != mpi.COMM_NULL:
                         base_comm.barrier()
                         if base_rank == base_root:
