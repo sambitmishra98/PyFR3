@@ -243,14 +243,12 @@ $EndPhysicalNames
         X, i = modify_X(X, np.meshgrid(Rx, Ry, Rz, indexing='ij'), i)
         X, i = modify_X(X, np.meshgrid(Mx, My, Mz, indexing='ij'), i)
 
-
-
         if etype == 'tet': 
-            ele, nele = self.gmsh_boundaries_tet(nx0, nx, nxL, ny0, ny, nyL, nz0, nz, nzL, ele, nele)
+            ele, nele = self.gmsh_boundaries_tet(nx0, nx, ny0, ny, nz0, nz, ele, nele)
             ele, nele = self.gmsh_elements_tet(  nx0, nx, nxL, ny0, ny, nyL, nz0, nz, nzL, ele, nele)
 
         elif etype == 'pyr':
-            ele, nele = self.gmsh_boundaries_pyr(nx0, nx, nxL, ny0, ny, nyL, nz0, nz, nzL, ele, nele)
+            ele, nele = self.gmsh_boundaries_pyr(nx0, nx, ny0, ny, nz0, nz, ele, nele)
             ele, nele = self.gmsh_elements_pyr(  nx0, nx, nxL, ny0, ny, nyL, nz0, nz, nzL, ele, nele)
 
         elif etype == 'pri':
