@@ -108,6 +108,12 @@ class BaseElements:
             self.scal_upts[:, i, :] = m8 @ v if m8 is not None else v
 
     def recreate_soln(self, solnmat):
+
+        # If super-order exists, replace order with super-order in cfg
+        if self.cfg.hasopt('solver', 'super-order'):
+            self.cfg.set('solver', 'order',
+                         self.cfg.getint('solver', 'super-order'))
+
         # Recreate the existing solution basis
         solnb = self.basis.__class__(None, self.cfg)
 

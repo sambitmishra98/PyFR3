@@ -76,6 +76,7 @@ class DualMultiPIntegrator(BaseDualPseudoIntegrator):
 
                 mcfg = Inifile(cfg.tostr())
                 mcfg.set('solver', 'order', l)
+                mcfg.set('solver', 'super-order', self._order)
                 mcfg.set(sect, 'pseudo-dt', self.dtau*self.dtauf**(order - l))
 
                 for s in cfg.sections():
