@@ -1108,7 +1108,7 @@ class LoadRelocator():
         # Create a movement-multiplier for elements movement
 
         # If ccc is not equal to previous_nelems, and if even one of the targets is 0 and we haven't reached that yet
-        for i in range(len(target_nelems)**3 ):
+        for i in range(len(target_nelems) ):
             if rank == root:
                 print(f"Current nelems: {curr_nelems} \t New movements: {target_nelems - curr_nelems}", flush=True)
            
