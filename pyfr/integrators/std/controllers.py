@@ -80,6 +80,10 @@ class StdNoneController(BaseStdController):
     controller_has_variable_dt = False
 
     lb_tend = perf_counter()
+    continue_lb = True
+    always_continue_lb = False
+    non_lb_times = []
+
 
     @property
     def controller_needs_errest(self):
@@ -111,17 +115,16 @@ class StdNoneController(BaseStdController):
                 self._accept_step_empty_rank(self.dt, idxcurr)
 
             # Collect and store data in operable format
-            if self.cfg.getbool('mesh', 'collect-statistics', False):
+
+            if self.cfg.getbool('mesh', 'collect-statistics', False) and self.continue_lb:
 
                 if not self.tcurr in self.tlist:
                     if compute_comm != mpi.COMM_NULL:
                         self.optimiser.collect_data()
                 else:
                     base_comm.barrier()
-                    if base_comm != mpi.COMM_NULL:
-                        base_comm.barrier()
-                        if base_rank == base_root:
-                            lb_tstart = perf_counter()
+                    if base_rank == base_root:
+                        lb_tstart = perf_counter()
 
                     if compute_comm != mpi.COMM_NULL:
                         self.optimiser.process_statistics()
@@ -223,14 +226,30 @@ class StdNoneController(BaseStdController):
     
                         gc.collect()
 
-                    if base_comm != mpi.COMM_NULL:
-                        base_comm.barrier()
+                    base_comm.barrier()
 
-                        if base_rank == base_root:
-                            lb_start_diff_end = lb_tstart - self.lb_tend
-                            self.lb_tend = perf_counter()
-                            lb_end_diff_start = self.lb_tend - lb_tstart
-                            print(f"\n----------------\nWall-times for non-loadbalance and load-balance respectively = \n{lb_start_diff_end}\n{lb_end_diff_start}", flush=True)
+                    if base_rank == base_root:
+                        lb_start_diff_end = lb_tstart - self.lb_tend
+                        self.lb_tend = perf_counter()
+                        lb_end_diff_start = self.lb_tend - lb_tstart
+                        print(f"\n----------------\nWall-times for non-loadbalance and load-balance respectively = \n{lb_start_diff_end}\n{lb_end_diff_start}", flush=True)
+                    else:
+                        lb_start_diff_end = None
+                    lb_start_diff_end = base_comm.bcast(lb_start_diff_end, root=base_root)
+
+                    # Store best mesh if self.non_lb_time is least so far
+                    if self.non_lb_times == []:
+                        self.load_relocator.mm.copy_mmesh('compute', 'best')
+                    elif lb_start_diff_end < min(self.non_lb_times):
+                        self.load_relocator.mm.remove_mmesh('best')
+                        self.load_relocator.mm.copy_mmesh('compute', 'best')
+                    self.non_lb_times.append(lb_start_diff_end)
+
+
+                # If the last 10 values of self.non_lb_times has a standard deviation of less than 1% of the mean, then stop load balancing
+                if len(self.non_lb_times) > 10 and self.always_continue_lb:
+                    if np.std(self.non_lb_times[-10:]) < 0.01*np.mean(self.non_lb_times[-10:]):
+                        self.continue_lb = False
 
                 if self.tcurr in self.tlist:
                     self.optimiser.empty_stats()
