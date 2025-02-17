@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 import re
+from time import perf_counter
 
 import numpy as np
 from pyfr.cache import memoize
@@ -16,9 +17,9 @@ from pyfr.readers.native import _Mesh
 # Fix seed
 BASE_TAG = 47
 np.random.seed(BASE_TAG)
-LOG_LEVEL=40
+LOG_LEVEL=30
 
-from pyfr.logger_utils import log_method_times
+from pyfr.logger_utils import log_method_times, initialise_logger
 
 @dataclass
 class _MetaMesh(_Mesh):
@@ -509,7 +510,7 @@ class _MetaMeshes:
         if if_base:
 
             # Initialise logger
-            # self._logger = initialise_logger(__name__, LOG_LEVEL)
+            self._logger = initialise_logger(__name__, LOG_LEVEL)
 
             comm, rank, root = get_comm_rank_root()
 
@@ -574,12 +575,12 @@ class _MetaMeshes:
         # Delete all src --> dest connections
         for mesh_name, mmesh in self.mmeshes.items():
             if src_name in mmesh.interconnector:
-                #self._logger.info(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
+                self._logger.info(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
                 del mmesh.interconnector[src_name]
 
         # Delete all dest --> src connections
         if dest_name in self.mmeshes[src_name].interconnector:
-            #self._logger.info(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
+            self._logger.info(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
             del self.mmeshes[src_name].interconnector[dest_name]
 
         self.mmeshes[dest_name] = self.mmeshes[src_name]
@@ -639,8 +640,8 @@ class _MetaMeshes:
             print(f"Available mmeshes: {list(self.mmeshes.keys())}")
             raise ValueError(f"{src_name} not yet recreated! ")
 
-        #if not dest_mmesh.recreated:
-            #self._logger.warning(f"{dest_name} not yet recreated! ")
+        if not dest_mmesh.recreated:
+            self._logger.warning(f"{dest_name} not yet recreated! ")
 
         # If connection already exists, then error
         if dest_name in src_mmesh.interconnector and not overwrite:
@@ -767,7 +768,7 @@ class LoadRelocator():
     def __init__(self, base_mesh: _Mesh, *,
                  bmmesh = 'base', cmmesh = 'compute', cnmmesh = 'compute_new'):
 
-        #self._logger = initialise_logger(__name__, LOG_LEVEL)
+        self._logger = initialise_logger(__name__, LOG_LEVEL)
 
         self.mm = _MetaMeshes()
         self.mm.add_mmesh(bmmesh, _MetaMesh.from_mesh(base_mesh), if_base=True)
@@ -1066,19 +1067,14 @@ class LoadRelocator():
                 all_counts[r][etype] = updated_count
                 #if updated_count < 2:
                 #    raise ValueError(f"After adding, rank {r} still has fewer than 2 elements for type {etype}.")
-        # Final check on every rank.
-        for etype in mm.etypes:
-            for r in range(comm.size):
-                if all_counts[r].get(etype, 0) < init_elems:
-                    raise ValueError(f"Rank {r} does not have at least {init_elems} elements of type {etype}.")
 
         # Print mesh
         print(self.mm, flush=True)
 
-        return self.mm.get_mmesh(mesh_name).to_mesh()
+        return self.mm.get_mmesh(mesh_name+'_new').to_mesh()
 
 
-    #@log_method_times
+    @log_method_times
     def diffuse_computation(self, mesh_name, target_nelems, cli = False,
                             move_priority = None):
         '''
@@ -1108,10 +1104,9 @@ class LoadRelocator():
         # Create a movement-multiplier for elements movement
 
         # If ccc is not equal to previous_nelems, and if even one of the targets is 0 and we haven't reached that yet
-        for i in range(len(target_nelems) ):
+        for i in range(len(target_nelems)):
             if rank == root:
-                print(f"Current nelems: {curr_nelems} \t New movements: {target_nelems - curr_nelems}", flush=True)
-           
+                print(f"Current nelems: {np.round(curr_nelems).astype(int)} \n New movements: {np.round(target_nelems - curr_nelems).astype(int)}", flush=True)
             if np.array_equal(curr_nelems, previous_nelems):
                 break
 
@@ -1143,7 +1138,14 @@ class LoadRelocator():
             move_elems = self.reloc_interface_elems(move_to_nrank, self.mm.get_mmesh(mesh_name+'_new'))
 
             preordered_eidxs = self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new'))
+
+            if rank == root:
+                perf5=perf_counter()
             self.mm.copy_mmesh(mesh_name+'_new', mesh_name+'-temp', preordered_eidxs)
+            if rank == root:
+                perf6=perf_counter()
+                print(f"Create-new-mesh Performance5: {perf6-perf5}", flush=True)
+
             self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_new')
 
             curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
@@ -1469,11 +1471,11 @@ class LoadRelocator():
 
 
             # Logg the number of elements moved to each rank, flattened 1D
-            #self._logger.info(f"Duplicates removed: { temp }")
+            self._logger.info(f"Duplicates removed: { temp }")
 
         return move_elems
     
-    #@log_method_times
+    @log_method_times
     def get_preordered_eidxs(self, 
                              move_to_nrank: dict[int, dict[str, np.ndarray]],
                              mesh: _MetaMesh) -> dict[str, np.ndarray[int]]:
@@ -1533,7 +1535,7 @@ class MeshInterConnector(AlltoallMixin):
     def __init__(self, mmesh: _MetaMesh, target: _MetaMesh = None):
 
         # Get loggers
-        #self._logger = initialise_logger(__name__, LOG_LEVEL)
+        self._logger = initialise_logger(__name__, LOG_LEVEL)
 
         self.comm = mmesh.comm
 
@@ -1577,8 +1579,8 @@ class MeshInterConnector(AlltoallMixin):
         new_copy._ridxs  = deepcopy(self. _ridxs)
 
         # Copy other attributes
-        #if hasattr(self, '_logger'):
-        #    new_copy._logger = #self._logger  # Share the same logger
+        if hasattr(self, '_logger'):
+            new_copy._logger = self._logger  # Share the same logger
 
         return new_copy
 
@@ -1612,7 +1614,7 @@ class MeshInterConnector(AlltoallMixin):
 
         return recv_elements
 
-    #@log_method_times
+    @log_method_times
     def recreate_reorder_recreate_mesh(self):
         self.target.interconnector[self.mmesh.mmesh_name].set_relocation_idxs()
 
@@ -1632,19 +1634,19 @@ class MeshInterConnector(AlltoallMixin):
 
         self._reconstruct_con_conp_bcon()
 
-    #@log_method_times
+    @log_method_times
     def _invert_recreated_mesh(self):
         self.target.eles        = self.relocate(self.target.eles)
         self.target.spts_curved = self.relocate(self.target.spts_curved)
         self.target.spts        = self.relocate(self.target.spts)
 
-    #@log_method_times
+    @log_method_times
     def _recreate_mesh_for_diffusion(self):
         self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
         self.target.spts_curved = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_curved)
         self.target.spts        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
 
-    #@log_method_times
+    @log_method_times
     def _reorder_elements(self, mesh: _Mesh):
         new_target_eidxs = {etype: [] for etype in self.etypes}
 
@@ -1662,7 +1664,7 @@ class MeshInterConnector(AlltoallMixin):
 
         mesh.eidxs = new_target_eidxs
 
-    #@log_method_times
+    @log_method_times
     def set_relocation_idxs(self):
         """
         Create 1D arrays of send and receive indices for the given element type.
@@ -1671,32 +1673,58 @@ class MeshInterConnector(AlltoallMixin):
         comm, rank, root = get_comm_rank_root()
 
         for etype in self.etypes:
-            #self._logger.info(f"Mapping to mesh eidxs for {etype}")
+            self._logger.info(f"Mapping to mesh eidxs for {etype}")
 
             from_mesh_eidxs = self.target_eidxs_gathered[etype][self.comm.rank]
             to_mesh_eidxs  = self. mmesh_eidxs_gathered[etype]
 
             # Build the send indices
-            _sidxs = [[int(e_number) for e_number in from_mesh_eidxs
-                    if e_number in to_mesh_eidxs[r]] 
-                      for r in range(comm.size)
-                     ]
+
+            self._logger.info(f"Building send indices for {etype}")
+            perf1=perf_counter()
+
+            # ORIGINAL            
+            #_sidxs = [[int(e_number) for e_number in from_mesh_eidxs if e_number in to_mesh_eidxs[r]] for r in range(comm.size)]
+
+            # NOW
+            from_mesh_eidxs_np = np.asarray(from_mesh_eidxs, dtype=int)
+
+            # _sidxs = []  # This will be a list (length comm.size) of lists of Python ints
+            # for r in range(comm.size):
+            #     to_arr = np.asarray(to_mesh_eidxs[r], dtype=int)
+            #     mask = np.isin(from_mesh_eidxs_np, to_arr)
+            #     selected = from_mesh_eidxs_np[mask]
+            #     selected_list = [int(x) for x in selected.tolist()]
+            #     _sidxs.append(selected_list)
+            _sidxs = [from_mesh_eidxs_np[np.isin(from_mesh_eidxs_np, np.asarray(to_mesh_eidxs[r], dtype=int))].tolist() for r in range(comm.size)]
+
+            perf2=perf_counter()
+            self._logger.info(f"Built send indices for {etype} in {perf2-perf1:.4f} seconds")
+            
             _scount = np.array([len(_sidxs[rank]) for rank in range(comm.size)])
             _sdisp = self._count_to_disp(_scount)
             _sidxs = np.concatenate(_sidxs).astype(int)
 
+            self._logger.info(f"About to perform an alltoallcv for {etype}")
+            perf3=perf_counter()
             # Communicate to get receive counts and displacements
             _, (_rcount, _rdisp) = self._alltoallcv(comm, 
                                                     _sidxs, _scount, _sdisp)
+            perf4=perf_counter()
+            self._logger.info(f"Performed an alltoallcv for {etype} in {perf4-perf3:.4f} seconds")
 
             # Allocate receive indices array
             _ridxs = np.empty((_rcount.sum(), *_sidxs.shape[1:]), 
                                 dtype=_sidxs.dtype
                              )
 
+            self._logger.info(f"DOING: alltoallv for {etype}")
+            perf5=perf_counter()
             # Perform all-to-all communication to exchange indices
             self._alltoallv(comm, (_sidxs, (_scount, _sdisp)),
                                   (_ridxs, (_rcount, _rdisp)))
+            perf6=perf_counter()
+            self._logger.info(f"DONE: alltoallv for {etype} in {perf6-perf5:.4f} seconds")
 
             self. _ridxs[etype] = _ridxs 
 
@@ -1705,6 +1733,8 @@ class MeshInterConnector(AlltoallMixin):
             self. _sdisp[etype] = _sdisp 
             self._rcount[etype] = _rcount
             self. _rdisp[etype] = _rdisp 
+
+            self._logger.info(f"Mapping to mesh eidxs complete for {etype}")
 
     def relocate(self, sary_dict: dict[str, np.ndarray]):
 
@@ -1742,7 +1772,7 @@ class MeshInterConnector(AlltoallMixin):
             
         return rary
 
-    #@log_method_times
+    @log_method_times
     def _reconstruct_con_conp_bcon(self):
         comm, rank, root = get_comm_rank_root()
 
