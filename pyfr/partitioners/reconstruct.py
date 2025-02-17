@@ -75,9 +75,9 @@ def reconstruct_by_diffusion(mesh, name, part_wts,
         #mesh = load_relocator.add_etype_to_rank('diffuse')
         mesh = load_relocator.ensure_nonzero_etype_on_all_ranks('diffuse')
         
-    #with progress.start('Start diffusion'):
-    #    print(f't_nelems_byrank: {t_nelems}')
-    #    mesh = load_relocator.diffuse_computation('diffuse', t_nelems, cli=True)
+    with progress.start('Start diffusion'):
+        print(f't_nelems_byrank: {t_nelems}')
+        mesh = load_relocator.diffuse_computation('diffuse', t_nelems, cli=True)
 
     # Group partition number and element idx from mesh of each rank
     sparts = {etype: [] for etype in mesh.etypes}
