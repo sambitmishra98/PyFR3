@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 import re
-from time import perf_counter
+from time import perf_counter, sleep
 
 import numpy as np
 from pyfr.cache import memoize
@@ -63,17 +63,24 @@ class _MetaMesh(_Mesh):
             mesh.spts        = {etype: np.empty((0, 0)) for etype in etypes} 
             mesh.spts_nodes  = {etype: np.empty((0, 0)) for etype in etypes} 
             mesh.spts_curved = {etype: np.empty((0, 0)) for etype in etypes} 
-            mesh.eles        = {etype: np.empty((0, 0)) for etype in etypes} 
+            #mesh.faces       = {etype: np.empty((0, 0)) for etype in etypes}
+            mesh.faces_cidxs = {etype: np.empty((0, 0)) for etype in etypes}
+            mesh.faces_offs  = {etype: np.empty((0, 0)) for etype in etypes}
+
+            #mesh.eles        = {etype: np.empty((0, 0)) for etype in etypes} 
             
             mesh.con         = []
             mesh.con_p       = {}
             mesh.bcon        = {}
 
-        eidxs = cls.preproc_edict(etypes, mesh.eidxs)
+        eidxs       = cls.preproc_edict(etypes, mesh.eidxs)
+        spts        = cls.preproc_edict(etypes, mesh.spts, edim=1)
+        spts_nodes  = cls.preproc_edict(etypes, mesh.spts_nodes)
         spts_curved = cls.preproc_edict(etypes, mesh.spts_curved)
-        spts_nodes = cls.preproc_edict(etypes, mesh.spts_nodes)
-        spts = cls.preproc_edict(etypes, mesh.spts, edim=1)
-        eles = cls.preproc_edict(etypes, mesh.eles)
+        #faces       = cls.preproc_edict(etypes, mesh.faces)
+        faces_cidxs  = cls.preproc_edict(etypes, mesh.faces_cidxs)
+        faces_offs  = cls.preproc_edict(etypes, mesh.faces_offs)
+        #eles        = cls.preproc_edict(etypes, mesh.eles)
 
         return cls(
             # Existing attributes
@@ -82,9 +89,14 @@ class _MetaMesh(_Mesh):
             creator=mesh.creator, codec=mesh.codec, uuid=mesh.uuid, 
             version=mesh.version,
             etypes=etypes, eidxs=eidxs,
-            spts_curved=spts_curved, spts_nodes=spts_nodes, spts=spts,
+            spts=spts,
+            spts_nodes=spts_nodes, 
+            spts_curved=spts_curved, 
+            #faces=faces,
+            faces_cidxs=faces_cidxs,
+            faces_offs=faces_offs,
             con=mesh.con, con_p=mesh.con_p, bcon=mesh.bcon,
-            eles=eles,
+            #eles=eles,
             
             # New attributes
             mmesh_name=None,
@@ -160,17 +172,23 @@ class _MetaMesh(_Mesh):
 
         postproc = lambda x,e=0: self.postproc_edict(x,edim=e)
 
+
+
+
         return _Mesh(
             fname=self.fname, raw=self.raw,
             ndims=self.ndims, subset=self.subset,
             creator=self.creator, codec = self.codec, uuid = self.uuid,
             version = self.version,
             etypes = self.etypes, eidxs = postproc(self.eidxs),
-            spts_curved = postproc(self.spts_curved),
-            spts_nodes = postproc(self.spts_nodes),
             spts = postproc(self.spts, 1),
+            spts_nodes = postproc(self.spts_nodes),
+            spts_curved = postproc(self.spts_curved),
+            #faces = postproc(self.faces),
+            faces_cidxs = postproc(self.faces_cidxs),
+            faces_offs = postproc(self.faces_offs),
             con = self.con, con_p = self.con_p, bcon = self.bcon,
-            eles = postproc(self.eles),
+            #eles = postproc(self.eles),
         )
 
     @staticmethod
@@ -414,8 +432,9 @@ class _MetaMesh(_Mesh):
 
         # Compare dictionaries containing numpy arrays
         dict_array_attrs = [
-            'eidxs', 'spts_curved', 'spts_nodes', 'spts',
-            'eles', 'spts_internal'
+            'eidxs',  'spts',  'spts_nodes', 'spts_curved', 'faces', 'faces_cidxs', 'faces_offs',
+            #'eles', 
+            'spts_internal'
         ]
         for attr in dict_array_attrs:
             if not self._compare_dicts_of_arrays(getattr(self, attr), getattr(other, attr)):
@@ -587,6 +606,33 @@ class _MetaMeshes:
         self.remove_mmesh(src_name)
         self.mmeshes[dest_name].mmesh_name = dest_name
 
+    def move_partial_mmesh(self, src_name, dest_name):
+        """
+        Move src-mesh to dest-mesh.
+        """
+
+        # Check if src and dest exist
+        if src_name not in self.mmeshes:
+            raise KeyError(f"Mesh '{src_name}' not found.")
+        else:
+            if dest_name not in self.mmeshes:
+                raise KeyError(f"Mesh '{dest_name}' not found.")
+
+        # Delete all src --> dest connections
+        for mesh_name, mmesh in self.mmeshes.items():
+            if src_name in mmesh.interconnector:
+                self._logger.info(f"Removing connection: src:{src_name} <-- mesh:{mesh_name}")
+                del mmesh.interconnector[src_name]
+
+        # Delete all dest --> src connections
+        if dest_name in self.mmeshes[src_name].interconnector:
+            self._logger.info(f"Removing connection: src:{dest_name} <-- dest:{src_name}")
+            del self.mmeshes[src_name].interconnector[dest_name]
+
+        self.mmeshes[dest_name] = self.mmeshes[src_name]
+        self.remove_mmesh(src_name)
+        self.mmeshes[dest_name].mmesh_name = dest_name
+
     def copy_mmesh(self, src_name, dest_name, new_eidxs = None):
         """
         Copy source meta-mesh to destination meta-mesh.
@@ -610,6 +656,24 @@ class _MetaMeshes:
             self.connect_mmeshes(src_name, dest_name, both_ways=True)
             self.get_mmesh(src_name).interconnector[dest_name].recreate_reorder_recreate_mesh()
             self.mmeshes[dest_name].recreated = True
+
+    def copy_partial_mmesh(self, src_name, dest_name, new_eidxs = None):
+        """
+        Copy source meta-mesh to destination meta-mesh.
+        """
+        if src_name not in self.mmeshes:
+            raise KeyError(f"Mesh '{src_name}' not found.")
+        else:
+            if dest_name in self.mmeshes:
+                raise KeyError(f"Mesh '{dest_name}' already exists.")
+        
+        self.mmeshes[dest_name] = self.mmeshes[src_name].copy(dest_name) 
+
+        if new_eidxs is not None:
+            self.mmeshes[dest_name].eidxs = self.mmeshes[src_name].preproc_edict(self.etypes, new_eidxs)
+            self.connect_partial_mmeshes(dest_name, src_name, both_ways=True)
+            self.get_mmesh(src_name).interconnector[dest_name].recreate_only_mesh()
+            self.mmeshes[dest_name].recreated = False
 
     def update_mmesh_comm(self, mesh_name: str, comm, ranks_map):
 
@@ -662,6 +726,44 @@ class _MetaMeshes:
         # This mapping will be {0: 1, 1: 0, 2: None, 3: 4}
         # WE have already done the above, and stored it in self.mmeshes[src_name].ranks_map
         # Now we need to connect src to dest, and store the same in MeshInterConnector object 
+
+        smap = src_mmesh.ranks_map
+        dmap = dest_mmesh.ranks_map
+
+        # If dmap is an empty dict, then equate it to smap
+        if not dmap:
+            dmap = smap
+
+        src_dest_ranks_map = {smap[k]: dmap[k] for k in smap}
+
+        if None in src_dest_ranks_map.values():
+            del src_dest_ranks_map[None]
+
+        src_mmesh.interconnector[dest_name].ranks_map = src_dest_ranks_map
+
+    def connect_partial_mmeshes(self, src_name: str, dest_name: str, 
+                       both_ways: bool = False, *, overwrite = False):
+        if not src_name in self.mmeshes:
+            # Print all mmeshes first, then raise error
+            print(f"Available mmeshes: {list(self.mmeshes.keys())}")
+            raise KeyError(f"Missing mesh: {src_name}.")
+            
+        if not dest_name in self.mmeshes:
+            print(f"Available mmeshes: {list(self.mmeshes.keys())}")
+            raise KeyError(f"Missing mesh: {dest_name}.") 
+
+        # For convinience, set variable names
+        src_mmesh = self.mmeshes[src_name]
+        dest_mmesh = self.mmeshes[dest_name]
+
+        # If connection already exists, then error
+        if dest_name in src_mmesh.interconnector and not overwrite:
+            raise ValueError(f"Connection exists: {src_name} <-- {dest_name}")
+
+        src_mmesh.interconnector[dest_name] = MeshInterConnector(
+                                                        src_mmesh, dest_mmesh)
+        if both_ways:
+            self.connect_partial_mmeshes(dest_name, src_name)
 
         smap = src_mmesh.ranks_map
         dmap = dest_mmesh.ranks_map
@@ -751,7 +853,7 @@ class _MetaMeshes:
                     row.append(str(nelem_etype[etype]))
                 row.append(str(total_elements))    
                 #row.append(inter_mesh_str)             # MESH CONNECTIONS   
-                #row.append(str(mesh.recreated))    
+                row.append(str(mesh.recreated))    
                 rows.append(row)                   
 
             # Now, format the table
@@ -870,9 +972,9 @@ class LoadRelocator():
 
         eidxs = mm_re.eidxs[etype]
         idx_loc = int(np.where(eidxs == idx)[0])
-
-        sides = mm_re.eles[etype][idx_loc][-1]
-        side_elements = [int(e) for _,e in sides]
+        #sides = mm_re.eles[etype][idx_loc][-1]
+        #side_elements = [int(e) for _,e in sides]
+        side_elements = [int(e) for _,e in mm_re.faces[etype][idx_loc]]
 
         idx_locs = [idx_loc,]
 
@@ -1082,6 +1184,8 @@ class LoadRelocator():
             This function is specific to 'compute' meta-mesh.
         '''
 
+        self.cli = cli
+
         if move_priority == None:
             self.move_priority = sorted(range(len(target_nelems)), reverse=True)
         else:
@@ -1104,9 +1208,12 @@ class LoadRelocator():
         # Create a movement-multiplier for elements movement
 
         # If ccc is not equal to previous_nelems, and if even one of the targets is 0 and we haven't reached that yet
-        for i in range(len(target_nelems)):
+        for i in range(24):
             if rank == root:
-                print(f"Current nelems: {np.round(curr_nelems).astype(int)} \n New movements: {np.round(target_nelems - curr_nelems).astype(int)}", flush=True)
+                print(f"Current nelems: {np.round(curr_nelems).astype(int)} "
+                      f"\n New movements: {np.round(target_nelems - curr_nelems).astype(int)}"
+                      f"\n ABS SUM new movements: {np.sum(np.abs(target_nelems - curr_nelems))}",
+                      flush=True)
             if np.array_equal(curr_nelems, previous_nelems):
                 break
 
@@ -1121,11 +1228,11 @@ class LoadRelocator():
             nelems_diff = target_nelems - np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
 
             # If any rank moves < 1% initial t_nelems, set rows/columns in self.if_move_along_interface to 0
-            for i, diff in enumerate(nelems_diff):
-                #if abs(diff) < self.imbalance_allowance * init_nelems:
-                if abs(diff) < 0.001 * init_nelems:
-                    self.if_move_along_interface[i, :] = 0
-                    self.if_move_along_interface[:, i] = 0
+            #for i, diff in enumerate(nelems_diff):
+            #    #if abs(diff) < self.imbalance_allowance * init_nelems:
+            #    if abs(diff) < 0.001 * init_nelems:
+            #        self.if_move_along_interface[i, :] = 0
+            #        self.if_move_along_interface[:, i] = 0
 
             move_to_nrank         = self.get_move_to_nrank(nelems_diff[rank], self.mm.get_mmesh(mesh_name+'_new'))
             self.movable_to_nrank = self.get_movable_to_nrank(self.mm.get_mmesh(mesh_name+'_new'))
@@ -1139,23 +1246,23 @@ class LoadRelocator():
 
             preordered_eidxs = self.get_preordered_eidxs(move_elems, self.mm.get_mmesh(mesh_name+'_new'))
 
-            if rank == root:
-                perf5=perf_counter()
-            self.mm.copy_mmesh(mesh_name+'_new', mesh_name+'-temp', preordered_eidxs)
-            if rank == root:
-                perf6=perf_counter()
-                print(f"Create-new-mesh Performance5: {perf6-perf5}", flush=True)
+            # PARTIAL MOVEMENT HERE
+            self.mm.copy_partial_mmesh(mesh_name+'_new', mesh_name+'-temp', preordered_eidxs)
 
-            self.mm.move_mmesh(mesh_name+'-temp', mesh_name+'_new')
+            self.mm.move_partial_mmesh(mesh_name+'-temp', mesh_name+'_new')
 
             curr_nelems = np.array(comm.allgather(self.mm.get_mmesh(mesh_name+'_new').nelems))
-        
-        self.mm.connect_mmeshes(mesh_name+'_new', mesh_name)
 
-        #if not cli:
-        #    # CLI only needs eidxs, if-curved and if-mpi.
-        #    self.mm.get_mmesh(mesh_name+'_new').spts        = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts,        edim=0)
-        #    self.mm.get_mmesh(mesh_name+'_new').spts_curved = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts_curved, edim=0)
+        # Complete movement here
+        self.mm.remove_mmesh(mesh_name+'_new')
+        self.mm.copy_mmesh(mesh_name, mesh_name+'_new', preordered_eidxs)
+        #self.mm.move_mmesh(mesh_name, mesh_name+'_new')
+        
+        #self.mm.connect_mmeshes(mesh_name+'_new', mesh_name)
+
+        if not cli:
+            # CLI only needs eidxs, if-curved and if-mpi.
+            self.mm.get_mmesh(mesh_name+'_new').spts        = self.reloc(mesh_name, mesh_name+'_new', self.mm.get_mmesh(mesh_name).spts,        edim=0)
 
         # Re-create ary
         new_mesh = self.mm.get_mmesh(mesh_name+ '_new').to_mesh()
@@ -1560,6 +1667,14 @@ class MeshInterConnector(AlltoallMixin):
             self.target_eidxs_gathered = target.collectall('eidxs')
             self.set_relocation_idxs()
 
+        self.pattern = re.compile(r'eles/(\w+)/(\d+)$')
+        
+        # Create a neighbourhood collective communicator
+        comm, rank, root = get_comm_rank_root()
+
+        self.ncomm = comm.Create_dist_graph_adjacent(self.neighbours,
+                                                self.neighbours)
+
     def copy(self):
         """
         Create a deep copy of the MeshInterConnector instance.
@@ -1635,16 +1750,30 @@ class MeshInterConnector(AlltoallMixin):
         self._reconstruct_con_conp_bcon()
 
     @log_method_times
+    def recreate_only_mesh(self):
+        self.target.interconnector[self.mmesh.mmesh_name].set_relocation_idxs()
+        self._recreate_mesh_for_diffusion()                                     
+        self._reconstruct_con_conp_bcon()                                       
+
+    @log_method_times
     def _invert_recreated_mesh(self):
-        self.target.eles        = self.relocate(self.target.eles)
+        #self.target.eles        = self.relocate(self.target.eles)
+        #self.target.spts        = self.relocate(self.target.spts)
         self.target.spts_curved = self.relocate(self.target.spts_curved)
-        self.target.spts        = self.relocate(self.target.spts)
+        #self.target.faces       = self.relocate(self.target.faces)
+        self.target.faces_cidxs = self.relocate(self.target.faces_cidxs)
+        self.target.faces_offs = self.relocate(self.target.faces_offs)
 
     @log_method_times
     def _recreate_mesh_for_diffusion(self):
-        self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
+        comm, rank, root = get_comm_rank_root()
+
+        #self.target.eles        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.eles)
+        #self.target.spts        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
         self.target.spts_curved = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts_curved)
-        self.target.spts        = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.spts)
+        #self.target.faces       = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.faces)
+        self.target.faces_cidxs = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.faces_cidxs)
+        self.target.faces_offs = self.target.interconnector[self.mmesh.mmesh_name].relocate(self.target.faces_offs)
 
     @log_method_times
     def _reorder_elements(self, mesh: _Mesh):
@@ -1678,11 +1807,6 @@ class MeshInterConnector(AlltoallMixin):
             from_mesh_eidxs = self.target_eidxs_gathered[etype][self.comm.rank]
             to_mesh_eidxs  = self. mmesh_eidxs_gathered[etype]
 
-            # Build the send indices
-
-            self._logger.info(f"Building send indices for {etype}")
-            perf1=perf_counter()
-
             # ORIGINAL            
             #_sidxs = [[int(e_number) for e_number in from_mesh_eidxs if e_number in to_mesh_eidxs[r]] for r in range(comm.size)]
 
@@ -1697,34 +1821,23 @@ class MeshInterConnector(AlltoallMixin):
             #     selected_list = [int(x) for x in selected.tolist()]
             #     _sidxs.append(selected_list)
             _sidxs = [from_mesh_eidxs_np[np.isin(from_mesh_eidxs_np, np.asarray(to_mesh_eidxs[r], dtype=int))].tolist() for r in range(comm.size)]
-
-            perf2=perf_counter()
-            self._logger.info(f"Built send indices for {etype} in {perf2-perf1:.4f} seconds")
             
             _scount = np.array([len(_sidxs[rank]) for rank in range(comm.size)])
             _sdisp = self._count_to_disp(_scount)
             _sidxs = np.concatenate(_sidxs).astype(int)
 
-            self._logger.info(f"About to perform an alltoallcv for {etype}")
-            perf3=perf_counter()
             # Communicate to get receive counts and displacements
             _, (_rcount, _rdisp) = self._alltoallcv(comm, 
                                                     _sidxs, _scount, _sdisp)
-            perf4=perf_counter()
-            self._logger.info(f"Performed an alltoallcv for {etype} in {perf4-perf3:.4f} seconds")
 
             # Allocate receive indices array
             _ridxs = np.empty((_rcount.sum(), *_sidxs.shape[1:]), 
                                 dtype=_sidxs.dtype
                              )
 
-            self._logger.info(f"DOING: alltoallv for {etype}")
-            perf5=perf_counter()
             # Perform all-to-all communication to exchange indices
             self._alltoallv(comm, (_sidxs, (_scount, _sdisp)),
                                   (_ridxs, (_rcount, _rdisp)))
-            perf6=perf_counter()
-            self._logger.info(f"DONE: alltoallv for {etype} in {perf6-perf5:.4f} seconds")
 
             self. _ridxs[etype] = _ridxs 
 
@@ -1776,9 +1889,12 @@ class MeshInterConnector(AlltoallMixin):
     def _reconstruct_con_conp_bcon(self):
         comm, rank, root = get_comm_rank_root()
 
-        mesh = self.target
-        eles = self.target.eles
 
+        mesh = self.target
+        #eles_faces = self.target.faces
+        eles_faces_cidxs = self.target.faces_cidxs
+        eles_faces_offs = self.target.faces_offs
+        
         mesh.bcon = {bc.split('/')[1]: [] for bc in mesh.codec if bc.startswith('bc/')}
         
         codec = mesh.codec
@@ -1787,15 +1903,18 @@ class MeshInterConnector(AlltoallMixin):
 
         # Create a map from global to local element numbers
         #glmap = [{}]*len(etypes)
-        glmap = [{} for _ in etypes]
-        for i, etype in enumerate(etypes):
-            if etype in eidxs:
-                glmap[i] = {k: j for j, k in enumerate(eidxs[etype])}
+        # glmap = [{} for _ in etypes]
+        # for i, etype in enumerate(etypes):
+        #     if etype in eidxs:
+        #         glmap[i] = {k: j for j, k in enumerate(eidxs[etype])}
+
+        glmap = [{k: j for j, k in enumerate(eidxs[etype])} if etype in eidxs else {} for etype in etypes]
 
         # Create cidx indexed maps
         cdone, cefidx = [None]*len(codec), [None]*len(codec)
         for cidx, c in enumerate(codec):
-            if (m := re.match(r'eles/(\w+)/(\d+)$', c)):
+            if (m := self.pattern.match(c)):
+            #if (m := re.match(r'eles/(\w+)/(\d+)$', c)):
                 etype, fidx = m[1], m[2]
                 cdone[cidx] = set()
                 cefidx[cidx] = (etype, etypes.index(etype), int(fidx))
@@ -1804,11 +1923,26 @@ class MeshInterConnector(AlltoallMixin):
         bcon = {i: [] for i, c in enumerate(codec) if c.startswith('bc/')}
         resid = {}
 
-        for etype, einfo in eles.items():
+        for etype in etypes:
+
+            if etype == 'hex':
+                nfaces = 6
+            elif etype == 'tet':
+                nfaces = 4
+            elif etype == 'pyr':
+                nfaces = 5 
+            else:
+                raise ValueError(f"Unknown element type '{etype}'")
+
+            num_elements = len(eidxs[etype])
+            
+            efaces2 = np.empty((num_elements, nfaces),
+                               dtype=[('cidx', np.int16), ('off', np.int64)])
+            efaces2['cidx'] = eles_faces_cidxs[etype]
+            efaces2['off']  = eles_faces_offs[etype]
 
             try:
-                i = etypes.index(etype)
-                for fidx, eface in enumerate(einfo['faces'].T):
+                for fidx, eface in enumerate(efaces2.T):
                     efcidx = codec.index(f'eles/{etype}/{fidx}')
 
                     for j, (cidx, off) in enumerate(iter_struct(eface)):
@@ -1842,32 +1976,23 @@ class MeshInterConnector(AlltoallMixin):
 
         # MPI connectivity
 
-
-        # Create a neighbourhood collective communicator
-        ncomm = comm.Create_dist_graph_adjacent(self.neighbours,
-                                                self.neighbours)
-
-
         # Create a list of our unpaired faces
         unpaired = list(resid.values())
 
         # Distribute this to each of our neighbours
-        nunpaired = ncomm.neighbor_allgather(unpaired)
+        nunpaired = self.ncomm.neighbor_allgather(unpaired)
 
         # See which of our neighbours unpaired faces we have
-        matches = [[resid[j] for j in nunp if j in resid]
-                   for nunp in nunpaired]
+        matches = [[resid[j] for j in nunp if j in resid] for nunp in nunpaired]
 
         # Distribute this information back to our neighbours
-        nmatches = ncomm.neighbor_alltoall(matches)
+        nmatches = self.ncomm.neighbor_alltoall(matches)
 
         for nrank, nmatch in zip(self.neighbours, nmatches):
             if rank < nrank:
-                ncon = sorted([(resid[m], m) for m in nmatch])
-                ncon = [r for l, r in ncon]
+                ncon = [r for l, r in sorted([(resid[m], m) for m in nmatch])]
             else:
-                ncon = sorted([(m, resid[m]) for m in nmatch])
-                ncon = [l for l, r in ncon]
+                ncon = [l for l, r in sorted([(m, resid[m]) for m in nmatch])]
 
             nncon = []
             for cidx, off in ncon:
@@ -1890,7 +2015,7 @@ class MeshInterConnector(AlltoallMixin):
 
         # `lexsort` needs boolean array of if-internal for each etype
         self.target.spts_internal = {etype: 
-                                     np.ones(self.target.eles[etype].shape[0], 
+                                     np.ones(self.target.faces_offs[etype].shape[0], 
                                             dtype=bool) 
                                       for etype in self.etypes
                                     }

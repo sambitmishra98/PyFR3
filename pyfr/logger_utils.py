@@ -59,11 +59,11 @@ def log_method_times(method):
         logger = self._logger
         mname = method.__name__
 
-        if tdiff > 60:
+        if tdiff > 40:
             logger.critical(f"WALLTIME: \t {mname}: {tdiff:.4f} s")
-        elif tdiff > 15:
+        elif tdiff > 10:
             logger.error(f"WALLTIME: \t {mname}: {tdiff:.4f} s")
-        elif tdiff > 5:
+        elif tdiff > 2:
             logger.warning(f"WALLTIME: \t {mname}: {tdiff:.4f} s")
         else:
             logger.debug(f"walltime: \t {mname}: {tdiff:.4f} s")

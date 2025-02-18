@@ -134,6 +134,25 @@ def main():
         process=process_partition_diffuse
     )
 
+    # Reconstruct partitioning by diffusion from an existing partitioning
+    ap_partition_diffuse = ap_partition.add_parser(
+        'initdiffuse', help='partition initdiffuse --help'
+    )
+
+    ap_partition_diffuse.add_argument('mesh', help='input mesh file')
+    ap_partition_diffuse.add_argument('np', 
+                                      help='number of partitions or a colon '
+                                           'delimited list of weights')
+    ap_partition_diffuse.add_argument('name', help='Existing partitioning name')
+    ap_partition_diffuse.add_argument('dpname', help='Diffused partitioning name')
+    ap_partition_diffuse.add_argument(
+        '-f', '--force', action='count', help='overwrite existing partitioning'
+    )
+
+    ap_partition_diffuse.set_defaults(
+        process=process_partition_lbinitialise
+    )
+
     # Remove partitioning
     ap_partition_remove = ap_partition.add_parser(
         'remove', help='partition remove --help'
@@ -414,7 +433,64 @@ def process_partition_diffuse(args):
 
     # Reconstruct the partitioning used in the solution
     vparts = reconstruct_by_diffusion(read_only_mesh, args.name, pwts,
-                                      args.progress)
+                                      args.progress, initialise_only=False)
+
+    if rank == root:
+        with args.progress.start('Repartition'):
+            if rank == root:
+                with (h5py.File(args.mesh, 'r+') as mesh):
+                    # Check it does not already exist unless --force is given
+                    if args.dpname in mesh['partitionings'] and not args.force:
+                        raise ValueError('Partitioning already exists; use -f to replace')
+
+                    con, ecurved, edisps, _ = BasePartitioner.construct_global_con(mesh)
+
+                    pinfo = BasePartitioner.construct_partitioning(mesh, ecurved, edisps,
+                                                                con, vparts)
+
+                    # Write out the new partitioning
+                    with args.progress.start('Write partitioning'):
+                            write_partitioning(mesh, args.dpname, pinfo)
+
+
+def process_partition_lbinitialise(args):
+    # Validate the partitioning name
+    if not re.match(r'\w+$', args.name):
+        raise ValueError('Invalid partitioning name')
+
+    init_mpi()
+
+    # If running with n MPI ranks and mesh args.name has m partitions, then
+    # create new comms with m ranks each
+    comm, rank, root = get_comm_rank_root()
+
+    etypes = []
+    pwts   = []
+    if rank == root:
+        with (h5py.File(args.mesh, 'r+') as mesh):
+            etypes = list(mesh['eles'])
+
+            # Partition weights
+            if ':' in args.np or '*' in args.np:
+                def psub(m): return ':'.join([m[1]]*int(m[2]))
+                pwts = re.sub(r'(\d+)\*(\d+)', psub, args.np)
+                pwts = [int(w) for w in pwts.split(':')]
+            else:
+                pwts = [1]*int(args.np)
+
+    etypes = comm.bcast(etypes, root=root)
+    pwts   = comm.bcast(pwts  , root=root)
+
+    if comm.size < 2:
+        raise ValueError('Diffusion is meaningless for nranks > 1.')
+
+    reader = NativeReader(args.mesh, pname=args.name, diffuse=True)
+    read_only_mesh = reader.mesh
+    reader.close()
+
+    # Reconstruct the partitioning used in the solution
+    vparts = reconstruct_by_diffusion(read_only_mesh, args.name, pwts,
+                                      args.progress, initialise_only=True)
 
     if rank == root:
         with args.progress.start('Repartition'):

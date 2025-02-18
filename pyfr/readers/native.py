@@ -30,11 +30,15 @@ class _Mesh:
     spts_nodes: dict = field(default_factory=dict)
     spts_curved: dict = field(default_factory=dict)
 
+    faces: dict = field(default_factory=dict)
+    faces_cidxs: dict = field(default_factory=dict)
+    faces_offs: dict = field(default_factory=dict)
+
     con: list = field(default_factory=list)
     con_p: dict = field(default_factory=dict)
     bcon: dict = field(default_factory=dict)
 
-    eles: dict = field(default_factory=dict)
+    #eles: dict = field(default_factory=dict)
 
 class NativeReader:
     def __init__(self, fname, pname=None, *, construct_con=True, diffuse=False):
@@ -141,7 +145,7 @@ class NativeReader:
             return self.mesh, soln
 
     def _subset_mesh(self, subset):
-        eidxs, spts, spts_nodes, spts_curved = {}, {}, {}, {}
+        eidxs, spts, spts_nodes, spts_curved, faces = {}, {}, {}, {}, {}
 
         for etype in self.mesh.spts:
             if etype in subset:
@@ -151,14 +155,22 @@ class NativeReader:
                     spts[etype] = self.mesh.spts[etype][:, sidx]
                     spts_nodes[etype] = self.mesh.spts_nodes[etype][sidx]
                     spts_curved[etype] = self.mesh.spts_curved[etype][sidx]
+                    #faces[etype] = self.mesh.faces[etype][sidx]
+                    cidxs = self.mesh.faces_cidxs[etype][sidx]
+                    offs = self.mesh.faces_offs[etype][sidx]
             else:
                 eidxs[etype] = self.mesh.eidxs[etype]
                 spts[etype] = self.mesh.spts[etype]
                 spts_nodes[etype] = self.mesh.spts_nodes[etype]
                 spts_curved[etype] = self.mesh.spts_curved[etype]
+                #faces[etype] = self.mesh.faces[etype]
+                cidxs = self.mesh.faces_cidxs[etype]
+                offs = self.mesh.faces_offs[etype]
 
         return replace(self.mesh, subset=True, eidxs=eidxs, spts=spts,
                        spts_nodes=spts_nodes, spts_curved=spts_curved,
+                       #faces=faces, 
+                       faces_cidxs=cidxs, faces_offs=offs,
                        con=None, con_p=None, bcon=None)
 
     def _read_metadata(self):
@@ -254,7 +266,7 @@ class NativeReader:
             if len(idxs):
                 eles[etype] = einfo
 
-        self.mesh.eles = eles
+        #self.mesh.eles = eles
 
     def _read_nodes(self):
         enodes = [einfo['nodes'] for einfo in self.eles.values()]
@@ -278,9 +290,12 @@ class NativeReader:
         for (etype, einfo), n in zip(self.eles.items(), nodes):
             spts = n.reshape(*einfo['nodes'].shape, -1).swapaxes(0, 1)
 
-            self.mesh.spts[etype] = spts
-            self.mesh.spts_nodes[etype] = einfo['nodes']
+            self.mesh.spts[etype]        = spts
+            self.mesh.spts_nodes[etype]  = einfo['nodes']
             self.mesh.spts_curved[etype] = einfo['curved']
+            #self.mesh.faces[etype]       = einfo['faces']
+            self.mesh.faces_cidxs[etype] = einfo['faces']['cidx']
+            self.mesh.faces_offs[etype]  = einfo['faces']['off']
 
     def _construct_con(self):
         codec = self.mesh.codec
